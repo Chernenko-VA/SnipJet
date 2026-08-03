@@ -14,7 +14,7 @@ object AppConfig {
 
     val windowWidthDp: Int get() = int("window", "widthDp") ?: 420
     val windowHeightDp: Int get() = int("window", "heightDp") ?: 220
-    val windowAlwaysOnTop: Boolean get() = bool("window", "alwaysOnTop") ?: true
+    val windowAlwaysOnTop: Boolean get() = bool("window", "alwaysOnTop") ?: false
     val windowPosition: String get() = string("window", "position") ?: "TopEnd"
     val windowHideDelayMs: Long get() = long("window", "hideDelayMs") ?: 300L
 
@@ -33,6 +33,14 @@ object AppConfig {
     val clipboardWlCopyCommand: String get() = string("clipboard", "wlCopyCommand") ?: "wl-copy"
     val clipboardWlCopyTypeFlag: String get() = string("clipboard", "wlCopyTypeFlag") ?: "--type"
     val clipboardWlCopyMime: String get() = string("clipboard", "wlCopyMime") ?: "image/png"
+
+    @Suppress("UNCHECKED_CAST")
+    val clipboardPathCandidates: List<String>
+        get() {
+            val section = root["clipboard"] as? Map<*, *> ?: return emptyList()
+            val list = section["pathCandidates"] as? List<*> ?: return emptyList()
+            return list.mapNotNull { it?.toString() }.filter { it.isNotBlank() }
+        }
 
     private fun loadRoot(): Map<String, Any?> {
         val stream = Thread.currentThread().contextClassLoader.getResourceAsStream("application.yml")

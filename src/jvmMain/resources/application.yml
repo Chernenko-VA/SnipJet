@@ -2,9 +2,9 @@ app:
   title: SnipJet
 
 window:
-  widthDp: 420
-  heightDp: 220
-  alwaysOnTop: true
+  widthDp: 480
+  heightDp: 360
+  alwaysOnTop: false
   # TopEnd | BottomEnd | TopStart | BottomStart | Center
   position: TopEnd
   hideDelayMs: 300
@@ -22,3 +22,7 @@ clipboard:
   wlCopyCommand: wl-copy
   wlCopyTypeFlag: --type
   wlCopyMime: image/png
+  pathCandidates:
+    - /usr/bin/wl-copy
+    - /bin/wl-copy
+    - /usr/local/bin/wl-copy

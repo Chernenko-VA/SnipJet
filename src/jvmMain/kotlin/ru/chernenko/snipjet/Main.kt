@@ -1,9 +1,6 @@
 package ru.chernenko.snipjet
 
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.dp
@@ -19,20 +16,18 @@ fun main() = application {
         size = DpSize(AppConfig.windowWidthDp.dp, AppConfig.windowHeightDp.dp),
         position = WindowPosition.Aligned(windowAlignment(AppConfig.windowPosition)),
     )
-    var windowVisible by remember { mutableStateOf(true) }
     val icon = remember { loadAppIcon() }
 
     Window(
         onCloseRequest = ::exitApplication,
         title = AppConfig.appTitle,
         state = windowState,
-        visible = windowVisible,
         alwaysOnTop = AppConfig.windowAlwaysOnTop,
         icon = icon,
         resizable = false,
     ) {
         StatusApp(
-            onVisibilityForCapture = { visible -> windowVisible = visible },
+            onVisibilityForCapture = { visible -> windowState.isMinimized = !visible },
             onExit = ::exitApplication,
         )
     }
