@@ -1,0 +1,32 @@
+package ru.chernenko.snipjet.config
+
+/**
+ * Keys for [message.properties] used with [Messages.get].
+ */
+object MessageKeys {
+    const val STATUS_CHECKING = "status.checking"
+    const val STATUS_READY_TITLE = "status.ready.title"
+    const val STATUS_READY_HINT = "status.ready.hint"
+    const val STATUS_READY_CAPTURE = "status.ready.capture"
+    const val STATUS_NEED_INSTALL_TITLE = "status.needInstall.title"
+    const val STATUS_NEED_INSTALL_HINT = "status.needInstall.hint"
+    const val STATUS_NEED_INSTALL_COMMAND = "status.needInstall.command"
+    const val STATUS_NEED_INSTALL_RETRY = "status.needInstall.retry"
+    const val STATUS_CAPTURING = "status.capturing"
+    const val STATUS_COPIED_TITLE = "status.copied.title"
+    const val STATUS_COPIED_HINT = "status.copied.hint"
+    const val STATUS_CANCELLED_TITLE = "status.cancelled.title"
+    const val STATUS_CANCELLED_HINT = "status.cancelled.hint"
+    const val STATUS_NEW_CAPTURE = "status.newCapture"
+    const val STATUS_EXIT = "status.exit"
+
+    const val ERROR_CAPTURE_TIMEOUT = "error.capture.timeout"
+    const val ERROR_CAPTURE_EXIT = "error.capture.exit"
+    const val ERROR_CAPTURE_EMPTY = "error.capture.empty"
+    const val ERROR_CAPTURE_MISSING = "error.capture.missing"
+    const val ERROR_CAPTURE_FAILED = "error.capture.failed"
+    const val ERROR_CLIPBOARD_DECODE = "error.clipboard.decode"
+    const val ERROR_CLIPBOARD_UNAVAILABLE = "error.clipboard.unavailable"
+    const val ERROR_CLIPBOARD_WL_COPY_FAILED = "error.clipboard.wlCopyFailed"
+    const val ERROR_GENERIC = "error.generic"
+}

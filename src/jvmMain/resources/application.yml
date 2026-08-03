@@ -1,0 +1,24 @@
+app:
+  title: SnipJet
+
+window:
+  widthDp: 420
+  heightDp: 220
+  alwaysOnTop: true
+  # TopEnd | BottomEnd | TopStart | BottomStart | Center
+  position: TopEnd
+  hideDelayMs: 300
+
+capture:
+  command: gnome-screenshot
+  timeoutSeconds: 300
+  tempPrefix: snipjet-
+  pathCandidates:
+    - /usr/bin/gnome-screenshot
+    - /bin/gnome-screenshot
+    - /usr/local/bin/gnome-screenshot
+
+clipboard:
+  wlCopyCommand: wl-copy
+  wlCopyTypeFlag: --type
+  wlCopyMime: image/png
