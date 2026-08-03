@@ -4,6 +4,8 @@ app:
 window:
   widthDp: 480
   heightDp: 360
+  editorWidthDp: 900
+  editorHeightDp: 700
   alwaysOnTop: false
   # TopEnd | BottomEnd | TopStart | BottomStart | Center
   position: TopEnd

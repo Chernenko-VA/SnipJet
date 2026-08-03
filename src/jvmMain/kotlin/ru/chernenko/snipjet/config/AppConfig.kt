@@ -14,6 +14,8 @@ object AppConfig {
 
     val windowWidthDp: Int get() = int("window", "widthDp") ?: 420
     val windowHeightDp: Int get() = int("window", "heightDp") ?: 220
+    val editorWidthDp: Int get() = int("window", "editorWidthDp") ?: 900
+    val editorHeightDp: Int get() = int("window", "editorHeightDp") ?: 700
     val windowAlwaysOnTop: Boolean get() = bool("window", "alwaysOnTop") ?: false
     val windowPosition: String get() = string("window", "position") ?: "TopEnd"
     val windowHideDelayMs: Long get() = long("window", "hideDelayMs") ?: 300L
