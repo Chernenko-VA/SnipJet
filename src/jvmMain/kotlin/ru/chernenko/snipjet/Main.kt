@@ -63,7 +63,7 @@ fun main() = application {
                 if (hiddenForCapture) return@SnipJetApp
                 if (open) {
                     windowState.placement = WindowPlacement.Floating
-                    windowState.size = halfScreenDpSize()
+                    windowState.size = editorScreenDpSize()
                     windowState.position = WindowPosition.Aligned(Alignment.Center)
                     SwingUtilities.invokeLater {
                         centerOnScreen(window)
@@ -90,7 +90,7 @@ private fun centerOnScreen(window: java.awt.Window) {
     window.setLocation(x, y)
 }
 
-private fun halfScreenDpSize(): DpSize {
+private fun editorScreenDpSize(): DpSize {
     val config = GraphicsEnvironment.getLocalGraphicsEnvironment()
         .defaultScreenDevice
         .defaultConfiguration
@@ -98,8 +98,8 @@ private fun halfScreenDpSize(): DpSize {
     val transform = config.defaultTransform
     val scaleX = transform.scaleX.coerceAtLeast(1e-6)
     val scaleY = transform.scaleY.coerceAtLeast(1e-6)
-    val widthDp = (bounds.width / scaleX / 2.0).toInt().coerceAtLeast(400)
-    val heightDp = (bounds.height / scaleY / 2.0).toInt().coerceAtLeast(300)
+    val widthDp = (bounds.width / scaleX * 2.0 / 3.0).toInt().coerceAtLeast(400)
+    val heightDp = (bounds.height / scaleY * 2.0 / 3.0).toInt().coerceAtLeast(300)
     return DpSize(widthDp.dp, heightDp.dp)
 }
 

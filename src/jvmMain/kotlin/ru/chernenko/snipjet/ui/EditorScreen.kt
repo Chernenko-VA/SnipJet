@@ -23,14 +23,14 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.VerticalDivider
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
@@ -39,7 +39,14 @@ import androidx.compose.ui.graphics.painter.BitmapPainter
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import ru.chernenko.snipjet.clipboard.ImageClipboard
+import ru.chernenko.snipjet.clipboard.LinuxImageClipboard
+import ru.chernenko.snipjet.editor.EditorTab
 import ru.chernenko.snipjet.editor.StrokeAnnotation
+import ru.chernenko.snipjet.editor.composeAnnotatedPng
 
 private data class ToolStrokeSettings(
     val alpha: Float,
@@ -51,22 +58,27 @@ private val DefaultMarkerSettings = ToolStrokeSettings(alpha = 0.45f, widthPx = 
 
 @Composable
 fun EditorScreen(
-    image: ImageBitmap,
+    tab: EditorTab,
+    tabs: List<EditorTab>,
+    onSelectTab: (Long) -> Unit,
+    onCloseTab: (Long) -> Unit,
+    onStrokesChange: (tabId: Long, strokes: List<StrokeAnnotation>) -> Unit,
     onNewCapture: () -> Unit,
+    clipboard: ImageClipboard = remember { LinuxImageClipboard() },
 ) {
+    val image = tab.image
+    val strokes = tab.strokes
     val density = LocalDensity.current
+    val scope = rememberCoroutineScope()
     val imageWidth = with(density) { image.width.toDp() }
     val imageHeight = with(density) { image.height.toDp() }
-    val verticalScroll = rememberScrollState()
-    val horizontalScroll = rememberScrollState()
 
     var selectedTool by remember { mutableStateOf(EditorTool.Pen) }
     var colorPanelOpen by remember { mutableStateOf(true) }
     var selectedColor by remember { mutableStateOf(EditorPaletteColors.first()) }
     var penSettings by remember { mutableStateOf(DefaultPenSettings) }
     var markerSettings by remember { mutableStateOf(DefaultMarkerSettings) }
-    var strokes by remember { mutableStateOf(listOf<StrokeAnnotation>()) }
-    var activePoints by remember { mutableStateOf<List<Offset>?>(null) }
+    var copyInProgress by remember { mutableStateOf(false) }
 
     val activeStrokeSettings = when (selectedTool) {
         EditorTool.Marker -> markerSettings
@@ -76,13 +88,40 @@ fun EditorScreen(
     val canvasBg = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)
     val dotColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.35f)
 
+    fun copyToClipboard() {
+        if (copyInProgress) return
+        copyInProgress = true
+        val strokesSnapshot = strokes
+        val imageSnapshot = image
+        scope.launch {
+            try {
+                withContext(Dispatchers.IO) {
+                    val pngBytes = composeAnnotatedPng(imageSnapshot, strokesSnapshot)
+                    clipboard.copyPngBytes(pngBytes)
+                }
+            } catch (_: Exception) {
+                // Keep editor usable; clipboard errors are non-fatal here.
+            } finally {
+                copyInProgress = false
+            }
+        }
+    }
+
     Column(modifier = Modifier.fillMaxSize()) {
         EditorTopBar(
             onUndo = {},
             onRedo = {},
-            onCopy = {},
+            onCopy = ::copyToClipboard,
             onSave = {},
             onNewCapture = onNewCapture,
+            copyEnabled = !copyInProgress,
+        )
+        HorizontalDivider()
+        EditorTabBar(
+            tabs = tabs,
+            activeTabId = tab.id,
+            onSelect = onSelectTab,
+            onClose = onCloseTab,
         )
         HorizontalDivider()
 
@@ -138,121 +177,135 @@ fun EditorScreen(
                     .fillMaxHeight()
                     .background(canvasBg),
             ) {
-                Canvas(modifier = Modifier.fillMaxSize()) {
-                    val step = 16.dp.toPx()
-                    var y = step
-                    while (y < size.height) {
-                        var x = step
-                        while (x < size.width) {
-                            drawCircle(color = dotColor, radius = 1.2f, center = Offset(x, y))
-                            x += step
-                        }
-                        y += step
-                    }
-                }
+                key(tab.id) {
+                    var activePoints by remember { mutableStateOf<List<Offset>?>(null) }
+                    val verticalScroll = rememberScrollState()
+                    val horizontalScroll = rememberScrollState()
 
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(end = 12.dp, bottom = 12.dp)
-                        .verticalScroll(verticalScroll)
-                        .horizontalScroll(horizontalScroll),
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .padding(24.dp)
-                            .size(imageWidth, imageHeight),
-                    ) {
-                        Image(
-                            painter = BitmapPainter(image),
-                            contentDescription = null,
-                            modifier = Modifier.fillMaxSize(),
-                        )
-                        Canvas(
+                    Box(modifier = Modifier.fillMaxSize()) {
+                        Canvas(modifier = Modifier.fillMaxSize()) {
+                            val step = 16.dp.toPx()
+                            var y = step
+                            while (y < size.height) {
+                                var x = step
+                                while (x < size.width) {
+                                    drawCircle(color = dotColor, radius = 1.2f, center = Offset(x, y))
+                                    x += step
+                                }
+                                y += step
+                            }
+                        }
+
+                        Box(
                             modifier = Modifier
                                 .fillMaxSize()
-                                .pointerInput(
-                                    selectedTool,
-                                    selectedColor,
-                                    activeStrokeSettings,
-                                    image.width,
-                                    image.height,
-                                ) {
-                                    if (selectedTool != EditorTool.Pen && selectedTool != EditorTool.Marker) {
-                                        return@pointerInput
-                                    }
-                                    val strokeWidth = activeStrokeSettings.widthPx
-                                    val strokeColor = selectedColor.copy(alpha = activeStrokeSettings.alpha)
-                                    detectDragGestures(
-                                        onDragStart = { start ->
-                                            activePoints = listOf(
-                                                start.toImageOffset(
-                                                    size.width.toFloat(),
-                                                    size.height.toFloat(),
-                                                    image.width,
-                                                    image.height,
-                                                ),
-                                            )
-                                        },
-                                        onDrag = { change, _ ->
-                                            change.consume()
-                                            val point = change.position.toImageOffset(
-                                                size.width.toFloat(),
-                                                size.height.toFloat(),
-                                                image.width,
-                                                image.height,
-                                            )
-                                            activePoints = (activePoints ?: emptyList()) + point
-                                        },
-                                        onDragEnd = {
-                                            val points = activePoints
-                                            activePoints = null
-                                            if (points != null && points.size >= 2) {
-                                                strokes = strokes + StrokeAnnotation(
-                                                    points = points,
-                                                    color = strokeColor,
-                                                    widthPx = strokeWidth,
-                                                )
-                                            }
-                                        },
-                                        onDragCancel = { activePoints = null },
-                                    )
-                                },
+                                .padding(end = 12.dp, bottom = 12.dp)
+                                .verticalScroll(verticalScroll)
+                                .horizontalScroll(horizontalScroll),
                         ) {
-                            val scaleX = size.width / image.width.toFloat()
-                            val scaleY = size.height / image.height.toFloat()
-                            strokes.forEach { stroke ->
-                                drawAnnotationStroke(stroke, scaleX, scaleY)
-                            }
-                            activePoints?.let { points ->
-                                if (points.size >= 2) {
-                                    drawAnnotationStroke(
-                                        StrokeAnnotation(
-                                            points = points,
-                                            color = selectedColor.copy(alpha = activeStrokeSettings.alpha),
-                                            widthPx = activeStrokeSettings.widthPx,
-                                        ),
-                                        scaleX,
-                                        scaleY,
-                                    )
+                            Box(
+                                modifier = Modifier
+                                    .padding(24.dp)
+                                    .size(imageWidth, imageHeight),
+                            ) {
+                                Image(
+                                    painter = BitmapPainter(image),
+                                    contentDescription = null,
+                                    modifier = Modifier.fillMaxSize(),
+                                )
+                                Canvas(
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .pointerInput(
+                                            tab.id,
+                                            selectedTool,
+                                            selectedColor,
+                                            activeStrokeSettings,
+                                            image.width,
+                                            image.height,
+                                            strokes,
+                                        ) {
+                                            if (selectedTool != EditorTool.Pen && selectedTool != EditorTool.Marker) {
+                                                return@pointerInput
+                                            }
+                                            val strokeWidth = activeStrokeSettings.widthPx
+                                            val strokeColor = selectedColor.copy(alpha = activeStrokeSettings.alpha)
+                                            val tabId = tab.id
+                                            detectDragGestures(
+                                                onDragStart = { start ->
+                                                    activePoints = listOf(
+                                                        start.toImageOffset(
+                                                            size.width.toFloat(),
+                                                            size.height.toFloat(),
+                                                            image.width,
+                                                            image.height,
+                                                        ),
+                                                    )
+                                                },
+                                                onDrag = { change, _ ->
+                                                    change.consume()
+                                                    val point = change.position.toImageOffset(
+                                                        size.width.toFloat(),
+                                                        size.height.toFloat(),
+                                                        image.width,
+                                                        image.height,
+                                                    )
+                                                    activePoints = (activePoints ?: emptyList()) + point
+                                                },
+                                                onDragEnd = {
+                                                    val points = activePoints
+                                                    activePoints = null
+                                                    if (points != null && points.size >= 2) {
+                                                        onStrokesChange(
+                                                            tabId,
+                                                            strokes + StrokeAnnotation(
+                                                                points = points,
+                                                                color = strokeColor,
+                                                                widthPx = strokeWidth,
+                                                            ),
+                                                        )
+                                                    }
+                                                },
+                                                onDragCancel = { activePoints = null },
+                                            )
+                                        },
+                                ) {
+                                    val scaleX = size.width / image.width.toFloat()
+                                    val scaleY = size.height / image.height.toFloat()
+                                    strokes.forEach { stroke ->
+                                        drawAnnotationStroke(stroke, scaleX, scaleY)
+                                    }
+                                    activePoints?.let { points ->
+                                        if (points.size >= 2) {
+                                            drawAnnotationStroke(
+                                                StrokeAnnotation(
+                                                    points = points,
+                                                    color = selectedColor.copy(alpha = activeStrokeSettings.alpha),
+                                                    widthPx = activeStrokeSettings.widthPx,
+                                                ),
+                                                scaleX,
+                                                scaleY,
+                                            )
+                                        }
+                                    }
                                 }
                             }
                         }
+                        VerticalScrollbar(
+                            adapter = rememberScrollbarAdapter(verticalScroll),
+                            modifier = Modifier
+                                .align(Alignment.CenterEnd)
+                                .fillMaxHeight(),
+                        )
+                        HorizontalScrollbar(
+                            adapter = rememberScrollbarAdapter(horizontalScroll),
+                            modifier = Modifier
+                                .align(Alignment.BottomStart)
+                                .fillMaxWidth()
+                                .padding(end = 12.dp),
+                        )
                     }
                 }
-                VerticalScrollbar(
-                    adapter = rememberScrollbarAdapter(verticalScroll),
-                    modifier = Modifier
-                        .align(Alignment.CenterEnd)
-                        .fillMaxHeight(),
-                )
-                HorizontalScrollbar(
-                    adapter = rememberScrollbarAdapter(horizontalScroll),
-                    modifier = Modifier
-                        .align(Alignment.BottomStart)
-                        .fillMaxWidth()
-                        .padding(end = 12.dp),
-                )
             }
         }
     }

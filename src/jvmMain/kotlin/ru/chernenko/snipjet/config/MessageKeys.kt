@@ -26,6 +26,8 @@ object MessageKeys {
     const val EDITOR_SAVE = "editor.save"
     const val EDITOR_UNDO = "editor.undo"
     const val EDITOR_REDO = "editor.redo"
+    const val EDITOR_TAB_TITLE = "editor.tab.title"
+    const val EDITOR_TAB_CLOSE = "editor.tab.close"
 
     const val ERROR_CAPTURE_TIMEOUT = "error.capture.timeout"
     const val ERROR_CAPTURE_EXIT = "error.capture.exit"

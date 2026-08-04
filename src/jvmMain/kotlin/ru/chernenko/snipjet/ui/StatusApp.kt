@@ -28,18 +28,12 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import ru.chernenko.snipjet.capture.GnomeScreenshotCapture
-import ru.chernenko.snipjet.capture.ScreenCaptureException
-import ru.chernenko.snipjet.clipboard.ImageClipboard
-import ru.chernenko.snipjet.clipboard.LinuxImageClipboard
-import ru.chernenko.snipjet.config.AppConfig
+import ru.chernenko.snipjet.capture.AreaCaptureRunner
+import ru.chernenko.snipjet.capture.CaptureOutcome
 import ru.chernenko.snipjet.config.MessageKeys
 import ru.chernenko.snipjet.config.Messages
-import ru.chernenko.snipjet.editor.loadPngImageBitmap
-import java.nio.file.Files
 
 private sealed interface StatusPhase {
     data object Checking : StatusPhase
@@ -72,9 +66,7 @@ fun StatusApp(
     onVisibilityForCapture: (visible: Boolean) -> Unit,
     onCaptureReady: (ImageBitmap) -> Unit,
     onExit: () -> Unit,
-    startCaptureToken: Int = 0,
-    capture: GnomeScreenshotCapture = remember { GnomeScreenshotCapture() },
-    clipboard: ImageClipboard = remember { LinuxImageClipboard() },
+    captureRunner: AreaCaptureRunner = remember { AreaCaptureRunner() },
 ) {
     var phase by remember { mutableStateOf<StatusPhase>(StatusPhase.Checking) }
     val scope = rememberCoroutineScope()
@@ -82,56 +74,31 @@ fun StatusApp(
 
     fun runCapture() {
         if (captureJob?.isActive == true) return
-        if (!capture.isAvailable() || !clipboard.isAvailable()) return
+        if (!captureRunner.isCaptureAvailable() || !captureRunner.isClipboardAvailable()) return
         phase = StatusPhase.Capturing
         captureJob = scope.launch {
-            onVisibilityForCapture(false)
-            delay(AppConfig.windowHideDelayMs)
-            var tempFile: java.nio.file.Path? = null
-            try {
-                tempFile = withContext(Dispatchers.IO) { capture.captureArea() }
-                val pngBytes = withContext(Dispatchers.IO) { Files.readAllBytes(tempFile) }
-                val bitmap = withContext(Dispatchers.IO) { loadPngImageBitmap(tempFile) }
-                onVisibilityForCapture(true)
-                onCaptureReady(bitmap)
-                phase = StatusPhase.Ready
-                launch(Dispatchers.IO) {
-                    try {
-                        clipboard.copyPngBytes(pngBytes)
-                    } catch (_: Exception) {
-                        // Background copy must not block the editor; composed copy comes later.
-                    }
+            when (val outcome = captureRunner.captureArea(onVisibilityForCapture)) {
+                is CaptureOutcome.Success -> {
+                    onCaptureReady(outcome.image)
+                    phase = StatusPhase.Ready
+                    captureRunner.copyPngInBackground(scope, outcome.pngBytes)
                 }
-            } catch (e: ScreenCaptureException) {
-                when {
-                    !capture.isAvailable() -> phase = StatusPhase.NeedInstall
-                    e.isCancellationLike() -> phase = StatusPhase.Cancelled
-                    else -> phase = StatusPhase.Failed(
-                        e.message ?: Messages.get(
-                            MessageKeys.ERROR_GENERIC,
-                            Messages.get(MessageKeys.ERROR_CAPTURE_FAILED),
-                        )
-                    )
-                }
-            } catch (e: Exception) {
-                phase = StatusPhase.Failed(
-                    Messages.get(MessageKeys.ERROR_GENERIC, e.message ?: e.toString())
-                )
-            } finally {
-                onVisibilityForCapture(true)
-                tempFile?.let { Files.deleteIfExists(it) }
+                is CaptureOutcome.Cancelled -> phase = StatusPhase.Cancelled
+                is CaptureOutcome.NeedInstall -> phase = StatusPhase.NeedInstall
+                is CaptureOutcome.NeedClipboard -> phase = StatusPhase.NeedClipboard
+                is CaptureOutcome.Failed -> phase = StatusPhase.Failed(outcome.message)
             }
         }
     }
 
     fun checkDependency() {
         scope.launch {
-            val captureOk = withContext(Dispatchers.IO) { capture.isAvailable() }
+            val captureOk = withContext(Dispatchers.IO) { captureRunner.isCaptureAvailable() }
             if (!captureOk) {
                 phase = StatusPhase.NeedInstall
                 return@launch
             }
-            val clipboardOk = withContext(Dispatchers.IO) { clipboard.isAvailable() }
+            val clipboardOk = withContext(Dispatchers.IO) { captureRunner.isClipboardAvailable() }
             phase = if (clipboardOk) StatusPhase.Ready else StatusPhase.NeedClipboard
         }
     }
@@ -140,18 +107,12 @@ fun StatusApp(
         checkDependency()
     }
 
-    LaunchedEffect(startCaptureToken) {
-        if (startCaptureToken > 0) {
-            runCapture()
-        }
-    }
-
     val busy = phase is StatusPhase.Capturing || captureJob?.isActive == true
     val content = phase.toContent()
     val actions = phase.toActionBarState(
         busy = busy,
-        captureAvailable = capture.isAvailable(),
-        clipboardAvailable = clipboard.isAvailable(),
+        captureAvailable = captureRunner.isCaptureAvailable(),
+        clipboardAvailable = captureRunner.isClipboardAvailable(),
     )
 
     Column(
@@ -319,10 +280,4 @@ private fun StatusPhase.toActionBarState(
         showRetry = needsDependency,
         exitEnabled = this !is StatusPhase.Capturing,
     )
-}
-
-private fun ScreenCaptureException.isCancellationLike(): Boolean {
-    val msg = message.orEmpty()
-    return msg.contains("cancelled", ignoreCase = true) ||
-        msg.contains("отмен", ignoreCase = true)
 }
