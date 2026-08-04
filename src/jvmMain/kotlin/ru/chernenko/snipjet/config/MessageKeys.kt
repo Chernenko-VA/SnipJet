@@ -22,6 +22,10 @@ object MessageKeys {
     const val STATUS_CANCELLED_HINT = "status.cancelled.hint"
     const val STATUS_NEW_CAPTURE = "status.newCapture"
     const val STATUS_EXIT = "status.exit"
+    const val EDITOR_COPY = "editor.copy"
+    const val EDITOR_SAVE = "editor.save"
+    const val EDITOR_UNDO = "editor.undo"
+    const val EDITOR_REDO = "editor.redo"
 
     const val ERROR_CAPTURE_TIMEOUT = "error.capture.timeout"
     const val ERROR_CAPTURE_EXIT = "error.capture.exit"

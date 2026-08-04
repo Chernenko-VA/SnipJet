@@ -31,7 +31,6 @@ fun SnipJetApp(
                 editorImage = null
                 startCaptureToken++
             },
-            onExit = onExit,
         )
     } else {
         StatusApp(
