@@ -26,6 +26,9 @@ fun SnipJetApp(
 
     val tabs = session.tabs
     val editorOpen = session.editorOpen
+    // Observe history so undo/redo button state refreshes.
+    @Suppress("UNUSED_VARIABLE")
+    val historyRevision = session.historyRevision
 
     LaunchedEffect(editorOpen) {
         onEditorOpen(editorOpen)
@@ -52,6 +55,10 @@ fun SnipJetApp(
             onSelectTab = session::selectTab,
             onCloseTab = session::closeTab,
             onStrokesChange = session::updateStrokes,
+            onUndo = { session.undo(activeTab.id) },
+            onRedo = { session.redo(activeTab.id) },
+            undoEnabled = session.canUndo(activeTab.id),
+            redoEnabled = session.canRedo(activeTab.id),
             onNewCapture = ::startCaptureFromEditor,
         )
     } else {

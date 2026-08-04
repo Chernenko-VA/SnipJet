@@ -15,12 +15,15 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
+import ru.chernenko.snipjet.config.MessageKeys
+import ru.chernenko.snipjet.config.Messages
 
 val EditorPaletteColors: List<Color> = listOf(
     Color(0xFFE53935), // red
@@ -95,20 +98,34 @@ fun EditorColorPalette(
 
             Column(
                 Modifier.fillMaxWidth(),
-                verticalArrangement = Arrangement.spacedBy(2.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                Slider(
-                    value = alpha.coerceIn(StrokeAlphaMin, StrokeAlphaMax),
-                    onValueChange = onAlphaChange,
-                    valueRange = StrokeAlphaMin..StrokeAlphaMax,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                Slider(
-                    value = widthPx.coerceIn(StrokeWidthMinPx, StrokeWidthMaxPx),
-                    onValueChange = onWidthChange,
-                    valueRange = StrokeWidthMinPx..StrokeWidthMaxPx,
-                    modifier = Modifier.fillMaxWidth(),
-                )
+                Column(verticalArrangement = Arrangement.spacedBy(0.dp)) {
+                    Text(
+                        text = Messages.get(MessageKeys.EDITOR_OPACITY),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Slider(
+                        value = alpha.coerceIn(StrokeAlphaMin, StrokeAlphaMax),
+                        onValueChange = onAlphaChange,
+                        valueRange = StrokeAlphaMin..StrokeAlphaMax,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
+                Column(verticalArrangement = Arrangement.spacedBy(0.dp)) {
+                    Text(
+                        text = Messages.get(MessageKeys.EDITOR_STROKE_SIZE),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Slider(
+                        value = widthPx.coerceIn(StrokeWidthMinPx, StrokeWidthMaxPx),
+                        onValueChange = onWidthChange,
+                        valueRange = StrokeWidthMinPx..StrokeWidthMaxPx,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
             }
         }
     }

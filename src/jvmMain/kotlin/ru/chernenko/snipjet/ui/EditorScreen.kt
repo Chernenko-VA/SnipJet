@@ -5,6 +5,7 @@ import androidx.compose.foundation.HorizontalScrollbar
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.VerticalScrollbar
 import androidx.compose.foundation.background
+import androidx.compose.foundation.focusable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectDragGestures
@@ -24,6 +25,7 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.VerticalDivider
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
@@ -32,12 +34,21 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.painter.BitmapPainter
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.isCtrlPressed
+import androidx.compose.ui.input.key.isMetaPressed
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.pointer.changedToUp
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
@@ -68,6 +79,10 @@ fun EditorScreen(
     onSelectTab: (Long) -> Unit,
     onCloseTab: (Long) -> Unit,
     onStrokesChange: (tabId: Long, strokes: List<StrokeAnnotation>) -> Unit,
+    onUndo: () -> Unit,
+    onRedo: () -> Unit,
+    undoEnabled: Boolean,
+    redoEnabled: Boolean,
     onNewCapture: () -> Unit,
     clipboard: ImageClipboard = remember { LinuxImageClipboard() },
 ) {
@@ -77,6 +92,7 @@ fun EditorScreen(
     val scope = rememberCoroutineScope()
     val imageWidth = with(density) { image.width.toDp() }
     val imageHeight = with(density) { image.height.toDp() }
+    val focusRequester = remember { FocusRequester() }
 
     var selectedTool by remember { mutableStateOf(EditorTool.Pen) }
     var colorPanelOpen by remember { mutableStateOf(true) }
@@ -92,6 +108,10 @@ fun EditorScreen(
     val enabledTools = remember { setOf(EditorTool.Pen, EditorTool.Marker, EditorTool.Eraser) }
     val canvasBg = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)
     val dotColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.35f)
+
+    LaunchedEffect(tab.id) {
+        focusRequester.requestFocus()
+    }
 
     fun copyToClipboard() {
         if (copyInProgress) return
@@ -112,13 +132,35 @@ fun EditorScreen(
         }
     }
 
-    Column(modifier = Modifier.fillMaxSize()) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .focusRequester(focusRequester)
+            .focusable()
+            .onPreviewKeyEvent { event ->
+                if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+                val shortcut = event.isCtrlPressed || event.isMetaPressed
+                when {
+                    shortcut && event.key == Key.Z && undoEnabled -> {
+                        onUndo()
+                        true
+                    }
+                    shortcut && event.key == Key.Y && redoEnabled -> {
+                        onRedo()
+                        true
+                    }
+                    else -> false
+                }
+            },
+    ) {
         EditorTopBar(
-            onUndo = {},
-            onRedo = {},
+            onUndo = onUndo,
+            onRedo = onRedo,
             onCopy = ::copyToClipboard,
             onSave = {},
             onNewCapture = onNewCapture,
+            undoEnabled = undoEnabled,
+            redoEnabled = redoEnabled,
             copyEnabled = !copyInProgress,
         )
         HorizontalDivider()
