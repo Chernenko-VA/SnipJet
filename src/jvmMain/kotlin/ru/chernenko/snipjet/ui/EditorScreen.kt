@@ -5,6 +5,8 @@ import androidx.compose.foundation.HorizontalScrollbar
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.VerticalScrollbar
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Box
@@ -36,6 +38,7 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.painter.BitmapPainter
+import androidx.compose.ui.input.pointer.changedToUp
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
@@ -47,6 +50,7 @@ import ru.chernenko.snipjet.clipboard.LinuxImageClipboard
 import ru.chernenko.snipjet.editor.EditorTab
 import ru.chernenko.snipjet.editor.StrokeAnnotation
 import ru.chernenko.snipjet.editor.composeAnnotatedPng
+import ru.chernenko.snipjet.editor.eraseStrokesAlongPath
 
 private data class ToolStrokeSettings(
     val alpha: Float,
@@ -55,6 +59,7 @@ private data class ToolStrokeSettings(
 
 private val DefaultPenSettings = ToolStrokeSettings(alpha = 1f, widthPx = 4f)
 private val DefaultMarkerSettings = ToolStrokeSettings(alpha = 0.45f, widthPx = 16f)
+private const val EraserRadiusPx = 20f
 
 @Composable
 fun EditorScreen(
@@ -84,7 +89,7 @@ fun EditorScreen(
         EditorTool.Marker -> markerSettings
         else -> penSettings
     }
-    val enabledTools = remember { setOf(EditorTool.Pen, EditorTool.Marker) }
+    val enabledTools = remember { setOf(EditorTool.Pen, EditorTool.Marker, EditorTool.Eraser) }
     val canvasBg = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)
     val dotColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.35f)
 
@@ -225,67 +230,133 @@ fun EditorScreen(
                                             image.height,
                                             strokes,
                                         ) {
-                                            if (selectedTool != EditorTool.Pen && selectedTool != EditorTool.Marker) {
-                                                return@pointerInput
-                                            }
-                                            val strokeWidth = activeStrokeSettings.widthPx
-                                            val strokeColor = selectedColor.copy(alpha = activeStrokeSettings.alpha)
                                             val tabId = tab.id
-                                            detectDragGestures(
-                                                onDragStart = { start ->
-                                                    activePoints = listOf(
-                                                        start.toImageOffset(
-                                                            size.width.toFloat(),
-                                                            size.height.toFloat(),
-                                                            image.width,
-                                                            image.height,
-                                                        ),
+                                            when (selectedTool) {
+                                                EditorTool.Pen, EditorTool.Marker -> {
+                                                    val strokeWidth = activeStrokeSettings.widthPx
+                                                    val strokeColor =
+                                                        selectedColor.copy(alpha = activeStrokeSettings.alpha)
+                                                    detectDragGestures(
+                                                        onDragStart = { start ->
+                                                            activePoints = listOf(
+                                                                start.toImageOffset(
+                                                                    size.width.toFloat(),
+                                                                    size.height.toFloat(),
+                                                                    image.width,
+                                                                    image.height,
+                                                                ),
+                                                            )
+                                                        },
+                                                        onDrag = { change, _ ->
+                                                            change.consume()
+                                                            val point = change.position.toImageOffset(
+                                                                size.width.toFloat(),
+                                                                size.height.toFloat(),
+                                                                image.width,
+                                                                image.height,
+                                                            )
+                                                            activePoints = (activePoints ?: emptyList()) + point
+                                                        },
+                                                        onDragEnd = {
+                                                            val points = activePoints
+                                                            activePoints = null
+                                                            if (points != null && points.size >= 2) {
+                                                                onStrokesChange(
+                                                                    tabId,
+                                                                    strokes + StrokeAnnotation(
+                                                                        points = points,
+                                                                        color = strokeColor,
+                                                                        widthPx = strokeWidth,
+                                                                    ),
+                                                                )
+                                                            }
+                                                        },
+                                                        onDragCancel = { activePoints = null },
                                                     )
-                                                },
-                                                onDrag = { change, _ ->
-                                                    change.consume()
-                                                    val point = change.position.toImageOffset(
-                                                        size.width.toFloat(),
-                                                        size.height.toFloat(),
-                                                        image.width,
-                                                        image.height,
-                                                    )
-                                                    activePoints = (activePoints ?: emptyList()) + point
-                                                },
-                                                onDragEnd = {
-                                                    val points = activePoints
-                                                    activePoints = null
-                                                    if (points != null && points.size >= 2) {
-                                                        onStrokesChange(
-                                                            tabId,
-                                                            strokes + StrokeAnnotation(
-                                                                points = points,
-                                                                color = strokeColor,
-                                                                widthPx = strokeWidth,
+                                                }
+                                                EditorTool.Eraser -> {
+                                                    // Press+release (tap) and drag both erase; detectDragGestures skips taps.
+                                                    awaitEachGesture {
+                                                        val down = awaitFirstDown()
+                                                        down.consume()
+                                                        val path = mutableListOf(
+                                                            down.position.toImageOffset(
+                                                                size.width.toFloat(),
+                                                                size.height.toFloat(),
+                                                                image.width,
+                                                                image.height,
                                                             ),
                                                         )
+                                                        activePoints = path.toList()
+
+                                                        while (true) {
+                                                            val event = awaitPointerEvent()
+                                                            val change = event.changes.firstOrNull {
+                                                                it.id == down.id
+                                                            } ?: break
+                                                            if (change.changedToUp()) {
+                                                                change.consume()
+                                                                break
+                                                            }
+                                                            if (change.pressed) {
+                                                                change.consume()
+                                                                path += change.position.toImageOffset(
+                                                                    size.width.toFloat(),
+                                                                    size.height.toFloat(),
+                                                                    image.width,
+                                                                    image.height,
+                                                                )
+                                                                activePoints = path.toList()
+                                                            }
+                                                        }
+
+                                                        val points = path.toList()
+                                                        activePoints = null
+                                                        if (points.isNotEmpty()) {
+                                                            onStrokesChange(
+                                                                tabId,
+                                                                eraseStrokesAlongPath(
+                                                                    strokes,
+                                                                    points,
+                                                                    EraserRadiusPx,
+                                                                ),
+                                                            )
+                                                        }
                                                     }
-                                                },
-                                                onDragCancel = { activePoints = null },
-                                            )
+                                                }
+                                            }
                                         },
                                 ) {
                                     val scaleX = size.width / image.width.toFloat()
                                     val scaleY = size.height / image.height.toFloat()
-                                    strokes.forEach { stroke ->
+                                    val visibleStrokes =
+                                        if (selectedTool == EditorTool.Eraser && activePoints != null) {
+                                            eraseStrokesAlongPath(
+                                                strokes,
+                                                activePoints.orEmpty(),
+                                                EraserRadiusPx,
+                                            )
+                                        } else {
+                                            strokes
+                                        }
+                                    visibleStrokes.forEach { stroke ->
                                         drawAnnotationStroke(stroke, scaleX, scaleY)
                                     }
-                                    activePoints?.let { points ->
-                                        if (points.size >= 2) {
-                                            drawAnnotationStroke(
-                                                StrokeAnnotation(
-                                                    points = points,
-                                                    color = selectedColor.copy(alpha = activeStrokeSettings.alpha),
-                                                    widthPx = activeStrokeSettings.widthPx,
-                                                ),
-                                                scaleX,
-                                                scaleY,
-                                            )
+                                    if (selectedTool == EditorTool.Pen || selectedTool == EditorTool.Marker) {
+                                        activePoints?.let { points ->
+                                            if (points.size >= 2) {
+                                                drawAnnotationStroke(
+                                                    StrokeAnnotation(
+                                                        points = points,
+                                                        color = selectedColor.copy(
+                                                            alpha = activeStrokeSettings.alpha,
+                                                        ),
+                                                        widthPx = activeStrokeSettings.widthPx,
+                                                    ),
+                                                    scaleX,
+                                                    scaleY,
+                                                )
+                                            }
                                         }
                                     }
                                 }
