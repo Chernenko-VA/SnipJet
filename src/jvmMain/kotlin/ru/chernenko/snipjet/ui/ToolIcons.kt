@@ -10,12 +10,14 @@ enum class EditorTool {
     Pen,
     Marker,
     Eraser,
+    Text,
 }
 
 private val toolIconResource: Map<EditorTool, String> = mapOf(
     EditorTool.Pen to "icon/pen.svg",
     EditorTool.Marker to "icon/marker.svg",
     EditorTool.Eraser to "icon/eraser.svg",
+    EditorTool.Text to "icon/text.svg",
 )
 
 @Composable

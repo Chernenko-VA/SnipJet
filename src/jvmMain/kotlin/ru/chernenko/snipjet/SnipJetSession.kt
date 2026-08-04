@@ -8,9 +8,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.graphics.ImageBitmap
 import ru.chernenko.snipjet.config.MessageKeys
 import ru.chernenko.snipjet.config.Messages
+import ru.chernenko.snipjet.editor.AnnotationHistory
+import ru.chernenko.snipjet.editor.EditorAnnotation
 import ru.chernenko.snipjet.editor.EditorTab
-import ru.chernenko.snipjet.editor.StrokeAnnotation
-import ru.chernenko.snipjet.editor.StrokeHistory
 
 /**
  * Editor session kept outside Compose so tabs survive window/composition recreation
@@ -28,7 +28,7 @@ class SnipJetSession {
 
     private var nextTabId by mutableLongStateOf(1L)
     private var nextTabNumber by mutableIntStateOf(1)
-    private val histories = mutableMapOf<Long, StrokeHistory>()
+    private val histories = mutableMapOf<Long, AnnotationHistory>()
 
     val editorOpen: Boolean get() = tabs.isNotEmpty()
 
@@ -40,7 +40,7 @@ class SnipJetSession {
         nextTabId += 1
         val number = nextTabNumber
         nextTabNumber += 1
-        histories[id] = StrokeHistory()
+        histories[id] = AnnotationHistory()
         tabs = tabs + EditorTab(
             id = id,
             title = Messages.get(MessageKeys.EDITOR_TAB_TITLE, number),
@@ -69,12 +69,12 @@ class SnipJetSession {
         }
     }
 
-    fun updateStrokes(tabId: Long, strokes: List<StrokeAnnotation>) {
+    fun updateAnnotations(tabId: Long, annotations: List<EditorAnnotation>) {
         val current = tabs.firstOrNull { it.id == tabId } ?: return
-        if (current.strokes == strokes) return
-        historyFor(tabId).recordChange(current.strokes)
+        if (current.annotations == annotations) return
+        historyFor(tabId).recordChange(current.annotations)
         tabs = tabs.map { tab ->
-            if (tab.id == tabId) tab.copy(strokes = strokes) else tab
+            if (tab.id == tabId) tab.copy(annotations = annotations) else tab
         }
         touchHistory()
     }
@@ -85,9 +85,9 @@ class SnipJetSession {
 
     fun undo(tabId: Long): Boolean {
         val current = tabs.firstOrNull { it.id == tabId } ?: return false
-        val previous = historyFor(tabId).undo(current.strokes) ?: return false
+        val previous = historyFor(tabId).undo(current.annotations) ?: return false
         tabs = tabs.map { tab ->
-            if (tab.id == tabId) tab.copy(strokes = previous) else tab
+            if (tab.id == tabId) tab.copy(annotations = previous) else tab
         }
         touchHistory()
         return true
@@ -95,16 +95,16 @@ class SnipJetSession {
 
     fun redo(tabId: Long): Boolean {
         val current = tabs.firstOrNull { it.id == tabId } ?: return false
-        val next = historyFor(tabId).redo(current.strokes) ?: return false
+        val next = historyFor(tabId).redo(current.annotations) ?: return false
         tabs = tabs.map { tab ->
-            if (tab.id == tabId) tab.copy(strokes = next) else tab
+            if (tab.id == tabId) tab.copy(annotations = next) else tab
         }
         touchHistory()
         return true
     }
 
-    private fun historyFor(tabId: Long): StrokeHistory =
-        histories.getOrPut(tabId) { StrokeHistory() }
+    private fun historyFor(tabId: Long): AnnotationHistory =
+        histories.getOrPut(tabId) { AnnotationHistory() }
 
     private fun touchHistory() {
         historyRevision += 1

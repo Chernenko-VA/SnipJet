@@ -9,6 +9,7 @@ import androidx.compose.foundation.focusable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -40,8 +41,11 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
+import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.graphics.painter.BitmapPainter
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.isCtrlPressed
@@ -49,28 +53,46 @@ import androidx.compose.ui.input.key.isMetaPressed
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
+import androidx.compose.ui.input.key.utf16CodePoint
 import androidx.compose.ui.input.pointer.changedToUp
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import org.jetbrains.skia.Font
+import org.jetbrains.skia.Paint as SkiaPaint
+import org.jetbrains.skia.PaintMode
 import ru.chernenko.snipjet.clipboard.ImageClipboard
 import ru.chernenko.snipjet.clipboard.LinuxImageClipboard
+import ru.chernenko.snipjet.editor.EditorAnnotation
 import ru.chernenko.snipjet.editor.EditorTab
 import ru.chernenko.snipjet.editor.StrokeAnnotation
+import ru.chernenko.snipjet.editor.TextAnnotation
 import ru.chernenko.snipjet.editor.composeAnnotatedPng
-import ru.chernenko.snipjet.editor.eraseStrokesAlongPath
+import ru.chernenko.snipjet.editor.eraseAnnotationsAlongPath
+import ru.chernenko.snipjet.editor.matchTypeface
+import ru.chernenko.snipjet.editor.resolveDefaultTextFontFamily
+import ru.chernenko.snipjet.editor.systemFontFamilies
 
 private data class ToolStrokeSettings(
     val alpha: Float,
     val widthPx: Float,
 )
 
+private data class TextToolSettings(
+    val alpha: Float,
+    val sizePt: Int,
+)
+
 private val DefaultPenSettings = ToolStrokeSettings(alpha = 1f, widthPx = 4f)
 private val DefaultMarkerSettings = ToolStrokeSettings(alpha = 0.45f, widthPx = 16f)
+private val DefaultTextSettings = TextToolSettings(alpha = 1f, sizePt = DefaultTextFontSizePt)
 private const val EraserRadiusPx = 20f
+private const val TextLineHeightFactor = 1.2f
+private const val CaretBlinkMs = 530L
 
 @Composable
 fun EditorScreen(
@@ -78,7 +100,7 @@ fun EditorScreen(
     tabs: List<EditorTab>,
     onSelectTab: (Long) -> Unit,
     onCloseTab: (Long) -> Unit,
-    onStrokesChange: (tabId: Long, strokes: List<StrokeAnnotation>) -> Unit,
+    onAnnotationsChange: (tabId: Long, annotations: List<EditorAnnotation>) -> Unit,
     onUndo: () -> Unit,
     onRedo: () -> Unit,
     undoEnabled: Boolean,
@@ -87,47 +109,133 @@ fun EditorScreen(
     clipboard: ImageClipboard = remember { LinuxImageClipboard() },
 ) {
     val image = tab.image
-    val strokes = tab.strokes
+    val annotations = tab.annotations
     val density = LocalDensity.current
     val scope = rememberCoroutineScope()
     val imageWidth = with(density) { image.width.toDp() }
     val imageHeight = with(density) { image.height.toDp() }
     val focusRequester = remember { FocusRequester() }
+    val fontFamilies = remember { systemFontFamilies() }
+    val defaultFont = remember(fontFamilies) { resolveDefaultTextFontFamily(fontFamilies) }
 
     var selectedTool by remember { mutableStateOf(EditorTool.Pen) }
     var colorPanelOpen by remember { mutableStateOf(true) }
     var selectedColor by remember { mutableStateOf(EditorPaletteColors.first()) }
     var penSettings by remember { mutableStateOf(DefaultPenSettings) }
     var markerSettings by remember { mutableStateOf(DefaultMarkerSettings) }
+    var textSettings by remember { mutableStateOf(DefaultTextSettings) }
+    var textFontFamily by remember { mutableStateOf(defaultFont) }
+    var textBold by remember { mutableStateOf(false) }
+    var textItalic by remember { mutableStateOf(false) }
+    var textUnderline by remember { mutableStateOf(false) }
     var copyInProgress by remember { mutableStateOf(false) }
+    var pendingTextPoint by remember { mutableStateOf<Offset?>(null) }
+    var textDraft by remember { mutableStateOf("") }
+    var caretVisible by remember { mutableStateOf(true) }
 
     val activeStrokeSettings = when (selectedTool) {
         EditorTool.Marker -> markerSettings
         else -> penSettings
     }
-    val enabledTools = remember { setOf(EditorTool.Pen, EditorTool.Marker, EditorTool.Eraser) }
+    val enabledTools = remember {
+        setOf(EditorTool.Pen, EditorTool.Marker, EditorTool.Eraser, EditorTool.Text)
+    }
     val canvasBg = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)
     val dotColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.35f)
+    val textSizePx = fontSizePtToPx(textSettings.sizePt)
+    val isEditingText = pendingTextPoint != null
+
+    fun cancelTextDraft() {
+        pendingTextPoint = null
+        textDraft = ""
+    }
+
+    fun confirmText() {
+        val point = pendingTextPoint
+        val value = textDraft
+        cancelTextDraft()
+        if (point == null || value.isBlank()) return
+        onAnnotationsChange(
+            tab.id,
+            annotations + TextAnnotation(
+                position = point,
+                text = value,
+                color = selectedColor.copy(alpha = textSettings.alpha),
+                sizePx = textSizePx,
+                fontFamily = textFontFamily,
+                bold = textBold,
+                italic = textItalic,
+                underline = textUnderline,
+            ),
+        )
+    }
 
     LaunchedEffect(tab.id) {
+        cancelTextDraft()
         focusRequester.requestFocus()
+    }
+
+    LaunchedEffect(pendingTextPoint, textDraft) {
+        if (pendingTextPoint == null) return@LaunchedEffect
+        caretVisible = true
+        while (true) {
+            delay(CaretBlinkMs)
+            caretVisible = !caretVisible
+        }
     }
 
     fun copyToClipboard() {
         if (copyInProgress) return
         copyInProgress = true
-        val strokesSnapshot = strokes
+        val annotationsSnapshot = annotations
         val imageSnapshot = image
         scope.launch {
             try {
                 withContext(Dispatchers.IO) {
-                    val pngBytes = composeAnnotatedPng(imageSnapshot, strokesSnapshot)
+                    val pngBytes = composeAnnotatedPng(imageSnapshot, annotationsSnapshot)
                     clipboard.copyPngBytes(pngBytes)
                 }
             } catch (_: Exception) {
                 // Keep editor usable; clipboard errors are non-fatal here.
             } finally {
                 copyInProgress = false
+            }
+        }
+    }
+
+    fun handleTextTyping(event: androidx.compose.ui.input.key.KeyEvent): Boolean {
+        if (!isEditingText) return false
+        val shortcut = event.isCtrlPressed || event.isMetaPressed
+        when {
+            event.key == Key.Escape -> {
+                cancelTextDraft()
+                return true
+            }
+            (event.key == Key.Enter || event.key == Key.NumPadEnter) && shortcut -> {
+                textDraft += "\n"
+                return true
+            }
+            event.key == Key.Enter || event.key == Key.NumPadEnter -> {
+                confirmText()
+                return true
+            }
+            event.key == Key.Backspace -> {
+                if (textDraft.isNotEmpty()) {
+                    textDraft = textDraft.dropLast(1)
+                }
+                return true
+            }
+            shortcut -> return false
+            else -> {
+                val code = event.utf16CodePoint
+                if (code != 0) {
+                    val ch = code.toChar()
+                    if (!ch.isISOControl()) {
+                        textDraft += ch
+                        return true
+                    }
+                }
+                return false
             }
         }
     }
@@ -139,6 +247,7 @@ fun EditorScreen(
             .focusable()
             .onPreviewKeyEvent { event ->
                 if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+                if (handleTextTyping(event)) return@onPreviewKeyEvent true
                 val shortcut = event.isCtrlPressed || event.isMetaPressed
                 when {
                     shortcut && event.key == Key.Z && undoEnabled -> {
@@ -178,7 +287,12 @@ fun EditorScreen(
                 enabledTools = enabledTools,
                 onSelect = { tool ->
                     if (tool !in enabledTools) return@EditorToolbar
-                    val usesColorPanel = tool == EditorTool.Pen || tool == EditorTool.Marker
+                    if (isEditingText && tool != EditorTool.Text) {
+                        confirmText()
+                    }
+                    val usesColorPanel = tool == EditorTool.Pen ||
+                        tool == EditorTool.Marker ||
+                        tool == EditorTool.Text
                     if (usesColorPanel) {
                         if (selectedTool == tool && colorPanelOpen) {
                             colorPanelOpen = false
@@ -199,10 +313,15 @@ fun EditorScreen(
                 EditorColorPalette(
                     selected = selectedColor,
                     onSelect = { selectedColor = it },
-                    alpha = activeStrokeSettings.alpha,
+                    alpha = if (selectedTool == EditorTool.Text) {
+                        textSettings.alpha
+                    } else {
+                        activeStrokeSettings.alpha
+                    },
                     onAlphaChange = { alpha ->
                         when (selectedTool) {
                             EditorTool.Marker -> markerSettings = markerSettings.copy(alpha = alpha)
+                            EditorTool.Text -> textSettings = textSettings.copy(alpha = alpha)
                             else -> penSettings = penSettings.copy(alpha = alpha)
                         }
                     },
@@ -213,6 +332,18 @@ fun EditorScreen(
                             else -> penSettings = penSettings.copy(widthPx = widthPx)
                         }
                     },
+                    showTextOptions = selectedTool == EditorTool.Text,
+                    fontFamily = textFontFamily,
+                    fontFamilies = fontFamilies,
+                    onFontFamilyChange = { textFontFamily = it },
+                    fontSizePt = textSettings.sizePt,
+                    onFontSizePtChange = { textSettings = textSettings.copy(sizePt = it) },
+                    bold = textBold,
+                    onBoldChange = { textBold = it },
+                    italic = textItalic,
+                    onItalicChange = { textItalic = it },
+                    underline = textUnderline,
+                    onUnderlineChange = { textUnderline = it },
                     modifier = Modifier.fillMaxHeight(),
                 )
                 VerticalDivider()
@@ -268,16 +399,25 @@ fun EditorScreen(
                                             selectedTool,
                                             selectedColor,
                                             activeStrokeSettings,
+                                            textSettings,
+                                            textFontFamily,
+                                            textBold,
+                                            textItalic,
+                                            textUnderline,
+                                            textSizePx,
+                                            pendingTextPoint,
+                                            textDraft,
                                             image.width,
                                             image.height,
-                                            strokes,
+                                            annotations,
                                         ) {
                                             val tabId = tab.id
                                             when (selectedTool) {
                                                 EditorTool.Pen, EditorTool.Marker -> {
                                                     val strokeWidth = activeStrokeSettings.widthPx
-                                                    val strokeColor =
-                                                        selectedColor.copy(alpha = activeStrokeSettings.alpha)
+                                                    val strokeColor = selectedColor.copy(
+                                                        alpha = activeStrokeSettings.alpha,
+                                                    )
                                                     detectDragGestures(
                                                         onDragStart = { start ->
                                                             activePoints = listOf(
@@ -297,15 +437,16 @@ fun EditorScreen(
                                                                 image.width,
                                                                 image.height,
                                                             )
-                                                            activePoints = (activePoints ?: emptyList()) + point
+                                                            activePoints =
+                                                                (activePoints ?: emptyList()) + point
                                                         },
                                                         onDragEnd = {
                                                             val points = activePoints
                                                             activePoints = null
                                                             if (points != null && points.size >= 2) {
-                                                                onStrokesChange(
+                                                                onAnnotationsChange(
                                                                     tabId,
-                                                                    strokes + StrokeAnnotation(
+                                                                    annotations + StrokeAnnotation(
                                                                         points = points,
                                                                         color = strokeColor,
                                                                         widthPx = strokeWidth,
@@ -317,7 +458,6 @@ fun EditorScreen(
                                                     )
                                                 }
                                                 EditorTool.Eraser -> {
-                                                    // Press+release (tap) and drag both erase; detectDragGestures skips taps.
                                                     awaitEachGesture {
                                                         val down = awaitFirstDown()
                                                         down.consume()
@@ -330,7 +470,6 @@ fun EditorScreen(
                                                             ),
                                                         )
                                                         activePoints = path.toList()
-
                                                         while (true) {
                                                             val event = awaitPointerEvent()
                                                             val change = event.changes.firstOrNull {
@@ -351,14 +490,13 @@ fun EditorScreen(
                                                                 activePoints = path.toList()
                                                             }
                                                         }
-
                                                         val points = path.toList()
                                                         activePoints = null
                                                         if (points.isNotEmpty()) {
-                                                            onStrokesChange(
+                                                            onAnnotationsChange(
                                                                 tabId,
-                                                                eraseStrokesAlongPath(
-                                                                    strokes,
+                                                                eraseAnnotationsAlongPath(
+                                                                    annotations,
                                                                     points,
                                                                     EraserRadiusPx,
                                                                 ),
@@ -366,28 +504,44 @@ fun EditorScreen(
                                                         }
                                                     }
                                                 }
+                                                EditorTool.Text -> {
+                                                    detectTapGestures { tap ->
+                                                        val point = tap.toImageOffset(
+                                                            size.width.toFloat(),
+                                                            size.height.toFloat(),
+                                                            image.width,
+                                                            image.height,
+                                                        )
+                                                        if (isEditingText) {
+                                                            confirmText()
+                                                        }
+                                                        pendingTextPoint = point
+                                                        textDraft = ""
+                                                        focusRequester.requestFocus()
+                                                    }
+                                                }
                                             }
                                         },
                                 ) {
                                     val scaleX = size.width / image.width.toFloat()
                                     val scaleY = size.height / image.height.toFloat()
-                                    val visibleStrokes =
+                                    val visibleAnnotations =
                                         if (selectedTool == EditorTool.Eraser && activePoints != null) {
-                                            eraseStrokesAlongPath(
-                                                strokes,
+                                            eraseAnnotationsAlongPath(
+                                                annotations,
                                                 activePoints.orEmpty(),
                                                 EraserRadiusPx,
                                             )
                                         } else {
-                                            strokes
+                                            annotations
                                         }
-                                    visibleStrokes.forEach { stroke ->
-                                        drawAnnotationStroke(stroke, scaleX, scaleY)
+                                    visibleAnnotations.forEach { annotation ->
+                                        drawAnnotation(annotation, scaleX, scaleY)
                                     }
                                     if (selectedTool == EditorTool.Pen || selectedTool == EditorTool.Marker) {
                                         activePoints?.let { points ->
                                             if (points.size >= 2) {
-                                                drawAnnotationStroke(
+                                                drawAnnotation(
                                                     StrokeAnnotation(
                                                         points = points,
                                                         color = selectedColor.copy(
@@ -399,6 +553,24 @@ fun EditorScreen(
                                                     scaleY,
                                                 )
                                             }
+                                        }
+                                    }
+                                    pendingTextPoint?.let { point ->
+                                        val draftAnnotation = TextAnnotation(
+                                            position = point,
+                                            text = textDraft,
+                                            color = selectedColor.copy(alpha = textSettings.alpha),
+                                            sizePx = textSizePx,
+                                            fontFamily = textFontFamily,
+                                            bold = textBold,
+                                            italic = textItalic,
+                                            underline = textUnderline,
+                                        )
+                                        if (textDraft.isNotEmpty()) {
+                                            drawAnnotationText(draftAnnotation, scaleX, scaleY)
+                                        }
+                                        if (caretVisible) {
+                                            drawTextCaret(draftAnnotation, scaleX, scaleY)
                                         }
                                     }
                                 }
@@ -435,7 +607,18 @@ private fun Offset.toImageOffset(
     return Offset(x, y)
 }
 
-private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawAnnotationStroke(
+private fun DrawScope.drawAnnotation(
+    annotation: EditorAnnotation,
+    scaleX: Float,
+    scaleY: Float,
+) {
+    when (annotation) {
+        is StrokeAnnotation -> drawAnnotationStroke(annotation, scaleX, scaleY)
+        is TextAnnotation -> drawAnnotationText(annotation, scaleX, scaleY)
+    }
+}
+
+private fun DrawScope.drawAnnotationStroke(
     stroke: StrokeAnnotation,
     scaleX: Float,
     scaleY: Float,
@@ -460,3 +643,80 @@ private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawAnnotationStrok
         ),
     )
 }
+
+private fun DrawScope.drawAnnotationText(
+    text: TextAnnotation,
+    scaleX: Float,
+    scaleY: Float,
+) {
+    if (text.text.isEmpty()) return
+    val scale = (scaleX + scaleY) / 2f
+    val sizePx = text.sizePx * scale
+    val lineHeight = sizePx * TextLineHeightFactor
+    val typeface = matchTypeface(text.fontFamily, text.bold, text.italic)
+    val font = Font(typeface, sizePx)
+    val originX = text.position.x * scaleX
+    val originY = text.position.y * scaleY
+    val paint = SkiaPaint().apply {
+        color = text.color.toArgb()
+        isAntiAlias = true
+        mode = PaintMode.FILL
+    }
+    try {
+        val lines = text.text.split('\n')
+        lines.forEachIndexed { index, line ->
+            val y = originY + index * lineHeight
+            drawContext.canvas.nativeCanvas.drawString(line, originX, y, font, paint)
+            if (text.underline && line.isNotEmpty()) {
+                val width = font.measureTextWidth(line)
+                paint.mode = PaintMode.STROKE
+                paint.strokeWidth = (sizePx * 0.08f).coerceAtLeast(1f)
+                val underlineY = y + sizePx * 0.12f
+                drawContext.canvas.nativeCanvas.drawLine(
+                    originX,
+                    underlineY,
+                    originX + width,
+                    underlineY,
+                    paint,
+                )
+                paint.mode = PaintMode.FILL
+            }
+        }
+    } finally {
+        paint.close()
+        font.close()
+        typeface.close()
+    }
+}
+
+private fun DrawScope.drawTextCaret(
+    text: TextAnnotation,
+    scaleX: Float,
+    scaleY: Float,
+) {
+    val scale = (scaleX + scaleY) / 2f
+    val sizePx = text.sizePx * scale
+    val lineHeight = sizePx * TextLineHeightFactor
+    val lines = text.text.split('\n')
+    val lastLine = lines.lastOrNull().orEmpty()
+    val lineIndex = (lines.size - 1).coerceAtLeast(0)
+    val originX = text.position.x * scaleX
+    val originY = text.position.y * scaleY
+    val typeface = matchTypeface(text.fontFamily, text.bold, text.italic)
+    val font = Font(typeface, sizePx)
+    val caretX = try {
+        originX + font.measureTextWidth(lastLine)
+    } finally {
+        font.close()
+        typeface.close()
+    }
+    val baseline = originY + lineIndex * lineHeight
+    val top = baseline - sizePx
+    drawLine(
+        color = text.color,
+        start = Offset(caretX, top),
+        end = Offset(caretX, baseline),
+        strokeWidth = 1.5f * scale.coerceAtLeast(1f),
+    )
+}
+

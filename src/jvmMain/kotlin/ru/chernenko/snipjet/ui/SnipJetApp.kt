@@ -54,7 +54,7 @@ fun SnipJetApp(
             tabs = tabs,
             onSelectTab = session::selectTab,
             onCloseTab = session::closeTab,
-            onStrokesChange = session::updateStrokes,
+            onAnnotationsChange = session::updateAnnotations,
             onUndo = { session.undo(activeTab.id) },
             onRedo = { session.redo(activeTab.id) },
             undoEnabled = session.canUndo(activeTab.id),

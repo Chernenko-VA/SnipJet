@@ -8,19 +8,35 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExposedDropdownMenuBox
+import androidx.compose.material3.ExposedDropdownMenuDefaults
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.MenuAnchorType
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontStyle
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextDecoration
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import ru.chernenko.snipjet.config.MessageKeys
 import ru.chernenko.snipjet.config.Messages
@@ -33,6 +49,15 @@ val EditorPaletteColors: List<Color> = listOf(
     Color(0xFF212121), // black
     Color(0xFFFFFFFF), // white
 )
+
+val EditorFontSizesPt: List<Int> = listOf(
+    8, 9, 10, 11, 12, 14, 16, 18, 20, 24, 28, 32, 36, 48, 72,
+)
+
+const val DefaultTextFontSizePt = 14
+
+/** Converts typographic points to screenshot pixels at 96 DPI. */
+fun fontSizePtToPx(pt: Int): Float = pt * 96f / 72f
 
 const val StrokeAlphaMin = 0.1f
 const val StrokeAlphaMax = 1f
@@ -48,6 +73,7 @@ private val PaletteHorizontalPadding = 12.dp
 val EditorColorPaletteWidth =
     PaletteHorizontalPadding * 2 + SwatchSize * PaletteColumns + SwatchGap * (PaletteColumns - 1)
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun EditorColorPalette(
     selected: Color,
@@ -56,6 +82,19 @@ fun EditorColorPalette(
     onAlphaChange: (Float) -> Unit,
     widthPx: Float,
     onWidthChange: (Float) -> Unit,
+    showTextOptions: Boolean = false,
+    fontFamily: String = "",
+    fontFamilies: List<String> = emptyList(),
+    onFontFamilyChange: (String) -> Unit = {},
+    fontSizePt: Int = DefaultTextFontSizePt,
+    fontSizesPt: List<Int> = EditorFontSizesPt,
+    onFontSizePtChange: (Int) -> Unit = {},
+    bold: Boolean = false,
+    onBoldChange: (Boolean) -> Unit = {},
+    italic: Boolean = false,
+    onItalicChange: (Boolean) -> Unit = {},
+    underline: Boolean = false,
+    onUnderlineChange: (Boolean) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     Surface(
@@ -113,18 +152,152 @@ fun EditorColorPalette(
                         modifier = Modifier.fillMaxWidth(),
                     )
                 }
-                Column(verticalArrangement = Arrangement.spacedBy(0.dp)) {
+                if (showTextOptions) {
                     Text(
-                        text = Messages.get(MessageKeys.EDITOR_STROKE_SIZE),
+                        text = Messages.get(MessageKeys.EDITOR_FONT_SIZE),
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
-                    Slider(
-                        value = widthPx.coerceIn(StrokeWidthMinPx, StrokeWidthMaxPx),
-                        onValueChange = onWidthChange,
-                        valueRange = StrokeWidthMinPx..StrokeWidthMaxPx,
-                        modifier = Modifier.fillMaxWidth(),
+                    var sizeMenuExpanded by remember { mutableStateOf(false) }
+                    ExposedDropdownMenuBox(
+                        expanded = sizeMenuExpanded,
+                        onExpandedChange = { sizeMenuExpanded = it },
+                    ) {
+                        OutlinedTextField(
+                            value = "$fontSizePt pt",
+                            onValueChange = {},
+                            readOnly = true,
+                            singleLine = true,
+                            trailingIcon = {
+                                ExposedDropdownMenuDefaults.TrailingIcon(expanded = sizeMenuExpanded)
+                            },
+                            modifier = Modifier
+                                .menuAnchor(MenuAnchorType.PrimaryNotEditable)
+                                .fillMaxWidth(),
+                            textStyle = MaterialTheme.typography.labelSmall,
+                        )
+                        ExposedDropdownMenu(
+                            expanded = sizeMenuExpanded,
+                            onDismissRequest = { sizeMenuExpanded = false },
+                            modifier = Modifier.heightIn(max = 240.dp),
+                        ) {
+                            fontSizesPt.forEach { size ->
+                                DropdownMenuItem(
+                                    text = { Text("$size pt") },
+                                    onClick = {
+                                        onFontSizePtChange(size)
+                                        sizeMenuExpanded = false
+                                    },
+                                )
+                            }
+                        }
+                    }
+                } else {
+                    Column(verticalArrangement = Arrangement.spacedBy(0.dp)) {
+                        Text(
+                            text = Messages.get(MessageKeys.EDITOR_STROKE_SIZE),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        Slider(
+                            value = widthPx.coerceIn(StrokeWidthMinPx, StrokeWidthMaxPx),
+                            onValueChange = onWidthChange,
+                            valueRange = StrokeWidthMinPx..StrokeWidthMaxPx,
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                    }
+                }
+            }
+
+            if (showTextOptions) {
+                Column(
+                    Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Text(
+                        text = Messages.get(MessageKeys.EDITOR_FONT),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
+                    var fontMenuExpanded by remember { mutableStateOf(false) }
+                    ExposedDropdownMenuBox(
+                        expanded = fontMenuExpanded,
+                        onExpandedChange = { fontMenuExpanded = it },
+                    ) {
+                        OutlinedTextField(
+                            value = fontFamily,
+                            onValueChange = {},
+                            readOnly = true,
+                            singleLine = true,
+                            trailingIcon = {
+                                ExposedDropdownMenuDefaults.TrailingIcon(expanded = fontMenuExpanded)
+                            },
+                            modifier = Modifier
+                                .menuAnchor(MenuAnchorType.PrimaryNotEditable)
+                                .fillMaxWidth(),
+                            textStyle = MaterialTheme.typography.labelSmall,
+                        )
+                        ExposedDropdownMenu(
+                            expanded = fontMenuExpanded,
+                            onDismissRequest = { fontMenuExpanded = false },
+                            modifier = Modifier.heightIn(max = 240.dp),
+                        ) {
+                            fontFamilies.forEach { family ->
+                                DropdownMenuItem(
+                                    text = {
+                                        Text(
+                                            family,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis,
+                                        )
+                                    },
+                                    onClick = {
+                                        onFontFamilyChange(family)
+                                        fontMenuExpanded = false
+                                    },
+                                )
+                            }
+                        }
+                    }
+
+                    Row(
+                        Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    ) {
+                        FilterChip(
+                            selected = bold,
+                            onClick = { onBoldChange(!bold) },
+                            label = {
+                                Text(
+                                    Messages.get(MessageKeys.EDITOR_BOLD),
+                                    fontWeight = FontWeight.Bold,
+                                )
+                            },
+                            modifier = Modifier.weight(1f),
+                        )
+                        FilterChip(
+                            selected = italic,
+                            onClick = { onItalicChange(!italic) },
+                            label = {
+                                Text(
+                                    Messages.get(MessageKeys.EDITOR_ITALIC),
+                                    fontStyle = FontStyle.Italic,
+                                )
+                            },
+                            modifier = Modifier.weight(1f),
+                        )
+                        FilterChip(
+                            selected = underline,
+                            onClick = { onUnderlineChange(!underline) },
+                            label = {
+                                Text(
+                                    Messages.get(MessageKeys.EDITOR_UNDERLINE),
+                                    textDecoration = TextDecoration.Underline,
+                                )
+                            },
+                            modifier = Modifier.weight(1f),
+                        )
+                    }
                 }
             }
         }

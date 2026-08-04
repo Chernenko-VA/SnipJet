@@ -1,22 +1,18 @@
 package ru.chernenko.snipjet.editor
 
 /**
- * Per-tab undo/redo for stroke lists. Keeps at most [maxUndo] past states.
+ * Per-tab undo/redo for annotation lists. Keeps at most [maxUndo] past states.
  */
-class StrokeHistory(
+class AnnotationHistory(
     private val maxUndo: Int = MaxUndoEntries,
 ) {
-    private val undoStack = ArrayDeque<List<StrokeAnnotation>>()
-    private val redoStack = ArrayDeque<List<StrokeAnnotation>>()
+    private val undoStack = ArrayDeque<List<EditorAnnotation>>()
+    private val redoStack = ArrayDeque<List<EditorAnnotation>>()
 
     val canUndo: Boolean get() = undoStack.isNotEmpty()
     val canRedo: Boolean get() = redoStack.isNotEmpty()
 
-    /**
-     * Records [previous] before applying a new strokes list.
-     * Clears redo. Drops oldest undo entries beyond [maxUndo].
-     */
-    fun recordChange(previous: List<StrokeAnnotation>) {
+    fun recordChange(previous: List<EditorAnnotation>) {
         undoStack.addLast(previous)
         while (undoStack.size > maxUndo) {
             undoStack.removeFirst()
@@ -24,19 +20,13 @@ class StrokeHistory(
         redoStack.clear()
     }
 
-    /**
-     * Pops undo: returns the strokes to restore, after pushing [current] onto redo.
-     */
-    fun undo(current: List<StrokeAnnotation>): List<StrokeAnnotation>? {
+    fun undo(current: List<EditorAnnotation>): List<EditorAnnotation>? {
         val previous = undoStack.removeLastOrNull() ?: return null
         redoStack.addLast(current)
         return previous
     }
 
-    /**
-     * Pops redo: returns the strokes to restore, after pushing [current] onto undo.
-     */
-    fun redo(current: List<StrokeAnnotation>): List<StrokeAnnotation>? {
+    fun redo(current: List<EditorAnnotation>): List<EditorAnnotation>? {
         val next = redoStack.removeLastOrNull() ?: return null
         undoStack.addLast(current)
         while (undoStack.size > maxUndo) {

@@ -1,6 +1,7 @@
 package ru.chernenko.snipjet.editor
 
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
 
 /**
  * Returns true if [eraserPoint] (with [eraserRadiusPx]) hits the stroke polyline,
@@ -28,29 +29,67 @@ fun strokeHitByEraser(
     return false
 }
 
+fun textHitByEraser(
+    text: TextAnnotation,
+    eraserPoint: Offset,
+    eraserRadiusPx: Float,
+): Boolean {
+    val bounds = approximateTextBounds(text).inflate(eraserRadiusPx)
+    return bounds.contains(eraserPoint)
+}
+
+fun annotationHitByEraser(
+    annotation: EditorAnnotation,
+    eraserPoint: Offset,
+    eraserRadiusPx: Float,
+): Boolean = when (annotation) {
+    is StrokeAnnotation -> strokeHitByEraser(annotation, eraserPoint, eraserRadiusPx)
+    is TextAnnotation -> textHitByEraser(annotation, eraserPoint, eraserRadiusPx)
+}
+
 /**
- * Removes strokes under the eraser path using paint order: at each sample only the
- * topmost (last drawn) hit counts. Overlapping strokes below are not erased until
- * the upper one is gone — so a click on a stack removes the visible top stroke.
+ * Removes annotations under the eraser path using paint order: at each sample only the
+ * topmost (last drawn) hit counts.
  */
-fun eraseStrokesAlongPath(
-    strokes: List<StrokeAnnotation>,
+fun eraseAnnotationsAlongPath(
+    annotations: List<EditorAnnotation>,
     eraserPath: List<Offset>,
     eraserRadiusPx: Float,
-): List<StrokeAnnotation> {
-    if (eraserPath.isEmpty() || strokes.isEmpty()) return strokes
+): List<EditorAnnotation> {
+    if (eraserPath.isEmpty() || annotations.isEmpty()) return annotations
     val removeIndices = linkedSetOf<Int>()
     for (point in eraserPath) {
-        val hitIndex = strokes.indexOfLast { stroke ->
-            strokeHitByEraser(stroke, point, eraserRadiusPx)
+        val hitIndex = annotations.indexOfLast { annotation ->
+            annotationHitByEraser(annotation, point, eraserRadiusPx)
         }
         if (hitIndex >= 0) {
             removeIndices.add(hitIndex)
         }
     }
-    if (removeIndices.isEmpty()) return strokes
-    return strokes.filterIndexed { index, _ -> index !in removeIndices }
+    if (removeIndices.isEmpty()) return annotations
+    return annotations.filterIndexed { index, _ -> index !in removeIndices }
 }
+
+fun approximateTextBounds(text: TextAnnotation): Rect {
+    val lines = text.text.split('\n')
+    val lineHeight = text.sizePx * 1.2f
+    val maxChars = lines.maxOfOrNull { it.length } ?: 0
+    val width = (maxChars * text.sizePx * 0.55f).coerceAtLeast(text.sizePx)
+    val height = lineHeight * lines.size.coerceAtLeast(1)
+    return Rect(
+        left = text.position.x,
+        top = text.position.y - text.sizePx,
+        right = text.position.x + width,
+        bottom = text.position.y - text.sizePx + height,
+    )
+}
+
+private fun Rect.inflate(amount: Float): Rect = Rect(
+    left = left - amount,
+    top = top - amount,
+    right = right + amount,
+    bottom = bottom + amount,
+)
 
 private fun distanceSq(a: Offset, b: Offset): Float {
     val dx = a.x - b.x

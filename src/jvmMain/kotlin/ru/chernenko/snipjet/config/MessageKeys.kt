@@ -30,6 +30,11 @@ object MessageKeys {
     const val EDITOR_TAB_CLOSE = "editor.tab.close"
     const val EDITOR_OPACITY = "editor.opacity"
     const val EDITOR_STROKE_SIZE = "editor.strokeSize"
+    const val EDITOR_FONT = "editor.font"
+    const val EDITOR_FONT_SIZE = "editor.fontSize"
+    const val EDITOR_BOLD = "editor.bold"
+    const val EDITOR_ITALIC = "editor.italic"
+    const val EDITOR_UNDERLINE = "editor.underline"
 
     const val ERROR_CAPTURE_TIMEOUT = "error.capture.timeout"
     const val ERROR_CAPTURE_EXIT = "error.capture.exit"

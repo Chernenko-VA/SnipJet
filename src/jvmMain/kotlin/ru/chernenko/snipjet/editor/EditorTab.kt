@@ -6,5 +6,5 @@ data class EditorTab(
     val id: Long,
     val title: String,
     val image: ImageBitmap,
-    val strokes: List<StrokeAnnotation> = emptyList(),
+    val annotations: List<EditorAnnotation> = emptyList(),
 )
