@@ -67,6 +67,8 @@ import org.jetbrains.skia.Paint as SkiaPaint
 import org.jetbrains.skia.PaintMode
 import ru.chernenko.snipjet.clipboard.ImageClipboard
 import ru.chernenko.snipjet.clipboard.LinuxImageClipboard
+import ru.chernenko.snipjet.config.MessageKeys
+import ru.chernenko.snipjet.config.Messages
 import ru.chernenko.snipjet.editor.EditorAnnotation
 import ru.chernenko.snipjet.editor.EditorTab
 import ru.chernenko.snipjet.editor.StrokeAnnotation
@@ -76,6 +78,11 @@ import ru.chernenko.snipjet.editor.eraseAnnotationsAlongPath
 import ru.chernenko.snipjet.editor.matchTypeface
 import ru.chernenko.snipjet.editor.resolveDefaultTextFontFamily
 import ru.chernenko.snipjet.editor.systemFontFamilies
+import java.awt.FileDialog
+import java.awt.Frame
+import java.io.File
+import java.time.LocalDateTime
+import java.time.format.DateTimeFormatter
 
 private data class ToolStrokeSettings(
     val alpha: Float,
@@ -129,8 +136,10 @@ fun EditorScreen(
     var textItalic by remember { mutableStateOf(false) }
     var textUnderline by remember { mutableStateOf(false) }
     var copyInProgress by remember { mutableStateOf(false) }
+    var saveInProgress by remember { mutableStateOf(false) }
     var pendingTextPoint by remember { mutableStateOf<Offset?>(null) }
     var textDraft by remember { mutableStateOf("") }
+    var textCaretIndex by remember { mutableStateOf(0) }
     var caretVisible by remember { mutableStateOf(true) }
 
     val activeStrokeSettings = when (selectedTool) {
@@ -148,6 +157,7 @@ fun EditorScreen(
     fun cancelTextDraft() {
         pendingTextPoint = null
         textDraft = ""
+        textCaretIndex = 0
     }
 
     fun confirmText() {
@@ -170,12 +180,23 @@ fun EditorScreen(
         )
     }
 
+    fun moveTextCaret(index: Int) {
+        textCaretIndex = index.coerceIn(0, textDraft.length)
+        caretVisible = true
+    }
+
+    fun insertTextAtCaret(value: String) {
+        val index = textCaretIndex.coerceIn(0, textDraft.length)
+        textDraft = textDraft.substring(0, index) + value + textDraft.substring(index)
+        moveTextCaret(index + value.length)
+    }
+
     LaunchedEffect(tab.id) {
         cancelTextDraft()
         focusRequester.requestFocus()
     }
 
-    LaunchedEffect(pendingTextPoint, textDraft) {
+    LaunchedEffect(pendingTextPoint, textDraft, textCaretIndex) {
         if (pendingTextPoint == null) return@LaunchedEffect
         caretVisible = true
         while (true) {
@@ -203,16 +224,39 @@ fun EditorScreen(
         }
     }
 
+    fun saveToFile() {
+        if (saveInProgress) return
+        saveInProgress = true
+        val annotationsSnapshot = annotations
+        val imageSnapshot = image
+        scope.launch {
+            try {
+                val path = withContext(Dispatchers.IO) {
+                    chooseSavePngPath()
+                } ?: return@launch
+                withContext(Dispatchers.IO) {
+                    val pngBytes = composeAnnotatedPng(imageSnapshot, annotationsSnapshot)
+                    File(path).writeBytes(pngBytes)
+                }
+            } catch (_: Exception) {
+                // Keep editor usable; save errors are non-fatal here.
+            } finally {
+                saveInProgress = false
+            }
+        }
+    }
+
     fun handleTextTyping(event: androidx.compose.ui.input.key.KeyEvent): Boolean {
         if (!isEditingText) return false
         val shortcut = event.isCtrlPressed || event.isMetaPressed
+        val caret = textCaretIndex.coerceIn(0, textDraft.length)
         when {
             event.key == Key.Escape -> {
                 cancelTextDraft()
                 return true
             }
             (event.key == Key.Enter || event.key == Key.NumPadEnter) && shortcut -> {
-                textDraft += "\n"
+                insertTextAtCaret("\n")
                 return true
             }
             event.key == Key.Enter || event.key == Key.NumPadEnter -> {
@@ -220,20 +264,54 @@ fun EditorScreen(
                 return true
             }
             event.key == Key.Backspace -> {
-                if (textDraft.isNotEmpty()) {
-                    textDraft = textDraft.dropLast(1)
+                if (caret > 0) {
+                    textDraft = textDraft.removeRange(caret - 1, caret)
+                    moveTextCaret(caret - 1)
                 }
                 return true
             }
+            event.key == Key.Delete -> {
+                if (caret < textDraft.length) {
+                    textDraft = textDraft.removeRange(caret, caret + 1)
+                    moveTextCaret(caret)
+                }
+                return true
+            }
+            event.key == Key.DirectionLeft -> {
+                moveTextCaret(caret - 1)
+                return true
+            }
+            event.key == Key.DirectionRight -> {
+                moveTextCaret(caret + 1)
+                return true
+            }
+            event.key == Key.DirectionUp -> {
+                moveTextCaret(moveCaretVertically(textDraft, caret, up = true))
+                return true
+            }
+            event.key == Key.DirectionDown -> {
+                moveTextCaret(moveCaretVertically(textDraft, caret, up = false))
+                return true
+            }
+            event.key == Key.MoveHome -> {
+                moveTextCaret(
+                    if (shortcut) 0 else lineStartIndex(textDraft, caret),
+                )
+                return true
+            }
+            event.key == Key.MoveEnd -> {
+                moveTextCaret(
+                    if (shortcut) textDraft.length else lineEndIndex(textDraft, caret),
+                )
+                return true
+            }
+            isNonTypingKey(event.key) -> return true
             shortcut -> return false
             else -> {
                 val code = event.utf16CodePoint
-                if (code != 0) {
-                    val ch = code.toChar()
-                    if (!ch.isISOControl()) {
-                        textDraft += ch
-                        return true
-                    }
+                if (isTextInputCodePoint(code)) {
+                    insertTextAtCaret(code.toChar().toString())
+                    return true
                 }
                 return false
             }
@@ -266,11 +344,12 @@ fun EditorScreen(
             onUndo = onUndo,
             onRedo = onRedo,
             onCopy = ::copyToClipboard,
-            onSave = {},
+            onSave = ::saveToFile,
             onNewCapture = onNewCapture,
             undoEnabled = undoEnabled,
             redoEnabled = redoEnabled,
             copyEnabled = !copyInProgress,
+            saveEnabled = !saveInProgress,
         )
         HorizontalDivider()
         EditorTabBar(
@@ -517,6 +596,7 @@ fun EditorScreen(
                                                         }
                                                         pendingTextPoint = point
                                                         textDraft = ""
+                                                        textCaretIndex = 0
                                                         focusRequester.requestFocus()
                                                     }
                                                 }
@@ -570,7 +650,12 @@ fun EditorScreen(
                                             drawAnnotationText(draftAnnotation, scaleX, scaleY)
                                         }
                                         if (caretVisible) {
-                                            drawTextCaret(draftAnnotation, scaleX, scaleY)
+                                            drawTextCaret(
+                                                draftAnnotation,
+                                                scaleX,
+                                                scaleY,
+                                                textCaretIndex,
+                                            )
                                         }
                                     }
                                 }
@@ -693,19 +778,22 @@ private fun DrawScope.drawTextCaret(
     text: TextAnnotation,
     scaleX: Float,
     scaleY: Float,
+    caretIndex: Int,
 ) {
     val scale = (scaleX + scaleY) / 2f
     val sizePx = text.sizePx * scale
     val lineHeight = sizePx * TextLineHeightFactor
-    val lines = text.text.split('\n')
-    val lastLine = lines.lastOrNull().orEmpty()
-    val lineIndex = (lines.size - 1).coerceAtLeast(0)
+    val index = caretIndex.coerceIn(0, text.text.length)
+    val prefix = text.text.substring(0, index)
+    val linesBefore = prefix.split('\n')
+    val lineIndex = (linesBefore.size - 1).coerceAtLeast(0)
+    val linePrefix = linesBefore.lastOrNull().orEmpty()
     val originX = text.position.x * scaleX
     val originY = text.position.y * scaleY
     val typeface = matchTypeface(text.fontFamily, text.bold, text.italic)
     val font = Font(typeface, sizePx)
     val caretX = try {
-        originX + font.measureTextWidth(lastLine)
+        originX + font.measureTextWidth(linePrefix)
     } finally {
         font.close()
         typeface.close()
@@ -718,5 +806,81 @@ private fun DrawScope.drawTextCaret(
         end = Offset(caretX, baseline),
         strokeWidth = 1.5f * scale.coerceAtLeast(1f),
     )
+}
+
+private fun lineStartIndex(text: String, index: Int): Int {
+    val i = index.coerceIn(0, text.length)
+    if (i <= 0) return 0
+    val newline = text.lastIndexOf('\n', i - 1)
+    return if (newline < 0) 0 else newline + 1
+}
+
+private fun lineEndIndex(text: String, index: Int): Int {
+    val i = index.coerceIn(0, text.length)
+    val newline = text.indexOf('\n', i)
+    return if (newline < 0) text.length else newline
+}
+
+private fun moveCaretVertically(text: String, index: Int, up: Boolean): Int {
+    val i = index.coerceIn(0, text.length)
+    val start = lineStartIndex(text, i)
+    val column = i - start
+    if (up) {
+        if (start == 0) return 0
+        val prevEnd = start - 1
+        val prevStart = lineStartIndex(text, prevEnd)
+        val prevLength = prevEnd - prevStart
+        return prevStart + column.coerceAtMost(prevLength)
+    }
+    val end = lineEndIndex(text, i)
+    if (end >= text.length) return text.length
+    val nextStart = end + 1
+    val nextEnd = lineEndIndex(text, nextStart)
+    val nextLength = nextEnd - nextStart
+    return nextStart + column.coerceAtMost(nextLength)
+}
+
+private val SaveFileTimestampFormat = DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss")
+
+private fun isNonTypingKey(key: Key): Boolean = when (key) {
+    Key.ShiftLeft, Key.ShiftRight, Key.CtrlLeft, Key.CtrlRight,
+    Key.AltLeft, Key.AltRight, Key.MetaLeft, Key.MetaRight, Key.SoftLeft, Key.SoftRight,
+    Key.Tab, Key.CapsLock, Key.NumLock, Key.ScrollLock, Key.Function,
+    Key.Insert, Key.PageUp, Key.PageDown,
+    Key.PrintScreen, Key.Menu,
+    Key.F1, Key.F2, Key.F3, Key.F4, Key.F5, Key.F6,
+    Key.F7, Key.F8, Key.F9, Key.F10, Key.F11, Key.F12,
+    -> true
+    else -> false
+}
+
+private fun isTextInputCodePoint(code: Int): Boolean {
+    if (code <= 0) return false
+    if (code in Character.MIN_SURROGATE.code..Character.MAX_SURROGATE.code) return false
+    if (Character.isISOControl(code)) return false
+    if (Character.isIdentifierIgnorable(code)) return false
+    return when (Character.getType(code)) {
+        Character.CONTROL.toInt(),
+        Character.FORMAT.toInt(),
+        Character.PRIVATE_USE.toInt(),
+        Character.SURROGATE.toInt(),
+        Character.UNASSIGNED.toInt(),
+        -> false
+        else -> true
+    }
+}
+
+private fun chooseSavePngPath(): String? {
+    val dialog = FileDialog(null as Frame?, Messages.get(MessageKeys.EDITOR_SAVE), FileDialog.SAVE)
+    dialog.file = "snipjet-${LocalDateTime.now().format(SaveFileTimestampFormat)}.png"
+    dialog.isVisible = true
+    val directory = dialog.directory ?: return null
+    val fileName = dialog.file ?: return null
+    val withExt = if (fileName.endsWith(".png", ignoreCase = true)) {
+        fileName
+    } else {
+        "$fileName.png"
+    }
+    return File(directory, withExt).absolutePath
 }
 
