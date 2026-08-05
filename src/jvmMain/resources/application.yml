@@ -1,0 +1,16 @@
+# Override defaults in ~/.config/snipjet/application.yml
+
+window:
+  # Fixed editor size; set both to 0 to use ~2/3 x 7/8 of the screen.
+  editorWidthDp: 0
+  editorHeightDp: 0
+  # TopEnd | BottomEnd | TopStart | BottomStart | Center
+  position: TopEnd
+
+capture:
+  hideDelayMs: 300
+  # Delay auto-copy after capture so the editor can render first.
+  backgroundCopyDelayMs: 500
+
+clipboard:
+  wlCopyTimeoutSeconds: 10

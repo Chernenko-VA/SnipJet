@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024" fill="none">
+  <rect width="1024" height="1024" rx="224" fill="#1B2430"/>
+  <!-- Crop L-corners -->
+  <path stroke="#2EE6A6" stroke-width="56" stroke-linecap="square" fill="none"
+        d="M256 352 V256 H352"/>
+  <path stroke="#2EE6A6" stroke-width="56" stroke-linecap="square" fill="none"
+        d="M672 256 H768 V352"/>
+  <path stroke="#2EE6A6" stroke-width="56" stroke-linecap="square" fill="none"
+        d="M768 672 V768 H672"/>
+  <path stroke="#2EE6A6" stroke-width="56" stroke-linecap="square" fill="none"
+        d="M352 768 H256 V672"/>
+  <!-- Jet slash -->
+  <path stroke="#2EE6A6" stroke-width="48" stroke-linecap="round" fill="none"
+        d="M300 700 L724 324"/>
+  <path fill="#2EE6A6" d="M700 280 L780 300 L720 360 Z"/>
+</svg>
