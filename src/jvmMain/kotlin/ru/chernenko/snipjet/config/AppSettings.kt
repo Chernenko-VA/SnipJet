@@ -1,5 +1,6 @@
 package ru.chernenko.snipjet.config
 
+import androidx.compose.ui.Alignment
 import org.yaml.snakeyaml.Yaml
 import java.io.InputStreamReader
 import java.nio.charset.StandardCharsets
@@ -24,6 +25,29 @@ data class AppInfo(
     val title: String = "SnipJet",
 )
 
+enum class WindowAnchor {
+    TopEnd,
+    BottomEnd,
+    TopStart,
+    BottomStart,
+    Center,
+    ;
+
+    fun toComposeAlignment(): Alignment = when (this) {
+        TopEnd -> Alignment.TopEnd
+        BottomEnd -> Alignment.BottomEnd
+        TopStart -> Alignment.TopStart
+        BottomStart -> Alignment.BottomStart
+        Center -> Alignment.Center
+    }
+
+    companion object {
+        fun parse(value: String?): WindowAnchor = entries.firstOrNull {
+            it.name.equals(value, ignoreCase = true)
+        } ?: TopEnd
+    }
+}
+
 data class WindowSettings(
     val widthDp: Int = 480,
     val heightDp: Int = 360,
@@ -32,8 +56,7 @@ data class WindowSettings(
     /** Fixed editor height; 0 uses a screen fraction at startup. */
     val editorHeightDp: Int = 0,
     val alwaysOnTop: Boolean = false,
-    val position: String = "TopEnd",
-    val hideDelayMs: Long = 300,
+    val position: WindowAnchor = WindowAnchor.TopEnd,
 ) {
     fun validate() {
         require(widthDp in 200..4000) { "window.widthDp must be between 200 and 4000" }
@@ -47,16 +70,6 @@ data class WindowSettings(
         require((editorWidthDp == 0) == (editorHeightDp == 0)) {
             "window.editorWidthDp and window.editorHeightDp must both be 0 (auto) or both be set"
         }
-        require(hideDelayMs in 0..5000) { "window.hideDelayMs must be between 0 and 5000" }
-        require(position in ALLOWED_POSITIONS) {
-            "window.position must be one of: ${ALLOWED_POSITIONS.joinToString()}"
-        }
-    }
-
-    companion object {
-        private val ALLOWED_POSITIONS = setOf(
-            "TopEnd", "BottomEnd", "TopStart", "BottomStart", "Center",
-        )
     }
 }
 
@@ -64,20 +77,15 @@ data class CaptureSettings(
     val command: String = "gnome-screenshot",
     val timeoutSeconds: Long = 300,
     val tempPrefix: String = "snipjet-",
-    val pathCandidates: List<String> = DEFAULT_PATH_CANDIDATES,
+    val hideDelayMs: Long = 300,
 ) {
+    val pathCandidates: List<String> get() = standardLinuxPaths(command)
+
     fun validate() {
         require(command.isNotBlank()) { "capture.command must not be blank" }
         require(timeoutSeconds in 1..3600) { "capture.timeoutSeconds must be between 1 and 3600" }
         require(tempPrefix.isNotBlank()) { "capture.tempPrefix must not be blank" }
-    }
-
-    companion object {
-        private val DEFAULT_PATH_CANDIDATES = listOf(
-            "/usr/bin/gnome-screenshot",
-            "/bin/gnome-screenshot",
-            "/usr/local/bin/gnome-screenshot",
-        )
+        require(hideDelayMs in 0..5000) { "capture.hideDelayMs must be between 0 and 5000" }
     }
 }
 
@@ -85,22 +93,21 @@ data class ClipboardSettings(
     val wlCopyCommand: String = "wl-copy",
     val wlCopyTypeFlag: String = "--type",
     val wlCopyMime: String = "image/png",
-    val pathCandidates: List<String> = DEFAULT_PATH_CANDIDATES,
 ) {
+    val pathCandidates: List<String> get() = standardLinuxPaths(wlCopyCommand)
+
     fun validate() {
         require(wlCopyCommand.isNotBlank()) { "clipboard.wlCopyCommand must not be blank" }
         require(wlCopyTypeFlag.isNotBlank()) { "clipboard.wlCopyTypeFlag must not be blank" }
         require(wlCopyMime.isNotBlank()) { "clipboard.wlCopyMime must not be blank" }
     }
-
-    companion object {
-        private val DEFAULT_PATH_CANDIDATES = listOf(
-            "/usr/bin/wl-copy",
-            "/bin/wl-copy",
-            "/usr/local/bin/wl-copy",
-        )
-    }
 }
+
+internal fun standardLinuxPaths(command: String): List<String> = listOf(
+    "/usr/bin/$command",
+    "/bin/$command",
+    "/usr/local/bin/$command",
+)
 
 internal object AppSettingsLoader {
     private const val BUNDLED_RESOURCE = "application.yml"
@@ -154,38 +161,38 @@ internal object AppSettingsLoader {
     }
 
     private fun parseSettings(root: Map<String, Any?>): AppSettings {
+        val defaults = AppSettings()
         val appSection = root["app"] as? Map<*, *>
         val windowSection = root["window"] as? Map<*, *>
         val captureSection = root["capture"] as? Map<*, *>
         val clipboardSection = root["clipboard"] as? Map<*, *>
+        val hideDelayMs = long(captureSection, "hideDelayMs")
+            ?: long(windowSection, "hideDelayMs")
+            ?: defaults.capture.hideDelayMs
         return AppSettings(
-            app = AppInfo(
-                title = string(appSection, "title") ?: AppInfo().title,
+            app = defaults.app.copy(
+                title = string(appSection, "title") ?: defaults.app.title,
             ),
-            window = WindowSettings(
-                widthDp = int(windowSection, "widthDp") ?: WindowSettings().widthDp,
-                heightDp = int(windowSection, "heightDp") ?: WindowSettings().heightDp,
-                editorWidthDp = int(windowSection, "editorWidthDp") ?: WindowSettings().editorWidthDp,
-                editorHeightDp = int(windowSection, "editorHeightDp") ?: WindowSettings().editorHeightDp,
-                alwaysOnTop = bool(windowSection, "alwaysOnTop") ?: WindowSettings().alwaysOnTop,
-                position = string(windowSection, "position") ?: WindowSettings().position,
-                hideDelayMs = long(windowSection, "hideDelayMs") ?: WindowSettings().hideDelayMs,
+            window = defaults.window.copy(
+                widthDp = int(windowSection, "widthDp") ?: defaults.window.widthDp,
+                heightDp = int(windowSection, "heightDp") ?: defaults.window.heightDp,
+                editorWidthDp = int(windowSection, "editorWidthDp") ?: defaults.window.editorWidthDp,
+                editorHeightDp = int(windowSection, "editorHeightDp") ?: defaults.window.editorHeightDp,
+                alwaysOnTop = bool(windowSection, "alwaysOnTop") ?: defaults.window.alwaysOnTop,
+                position = WindowAnchor.parse(string(windowSection, "position")),
             ),
-            capture = CaptureSettings(
-                command = string(captureSection, "command") ?: CaptureSettings().command,
-                timeoutSeconds = long(captureSection, "timeoutSeconds") ?: CaptureSettings().timeoutSeconds,
-                tempPrefix = string(captureSection, "tempPrefix") ?: CaptureSettings().tempPrefix,
-                pathCandidates = stringList(captureSection, "pathCandidates")
-                    ?: CaptureSettings().pathCandidates,
+            capture = defaults.capture.copy(
+                command = string(captureSection, "command") ?: defaults.capture.command,
+                timeoutSeconds = long(captureSection, "timeoutSeconds") ?: defaults.capture.timeoutSeconds,
+                tempPrefix = string(captureSection, "tempPrefix") ?: defaults.capture.tempPrefix,
+                hideDelayMs = hideDelayMs,
             ),
-            clipboard = ClipboardSettings(
+            clipboard = defaults.clipboard.copy(
                 wlCopyCommand = string(clipboardSection, "wlCopyCommand")
-                    ?: ClipboardSettings().wlCopyCommand,
+                    ?: defaults.clipboard.wlCopyCommand,
                 wlCopyTypeFlag = string(clipboardSection, "wlCopyTypeFlag")
-                    ?: ClipboardSettings().wlCopyTypeFlag,
-                wlCopyMime = string(clipboardSection, "wlCopyMime") ?: ClipboardSettings().wlCopyMime,
-                pathCandidates = stringList(clipboardSection, "pathCandidates")
-                    ?: ClipboardSettings().pathCandidates,
+                    ?: defaults.clipboard.wlCopyTypeFlag,
+                wlCopyMime = string(clipboardSection, "wlCopyMime") ?: defaults.clipboard.wlCopyMime,
             ),
         )
     }
@@ -201,9 +208,4 @@ internal object AppSettingsLoader {
 
     private fun bool(section: Map<*, *>?, key: String): Boolean? =
         section?.get(key) as? Boolean
-
-    private fun stringList(section: Map<*, *>?, key: String): List<String>? {
-        val list = section?.get(key) as? List<*> ?: return null
-        return list.mapNotNull { it?.toString() }.filter { it.isNotBlank() }.takeIf { it.isNotEmpty() }
-    }
 }

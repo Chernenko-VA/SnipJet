@@ -72,7 +72,7 @@ fun eraseAnnotationsAlongPath(
 
 fun approximateTextBounds(text: TextAnnotation): Rect {
     val lines = text.text.split('\n')
-    val lineHeight = text.sizePx * 1.2f
+    val lineHeight = text.sizePx * TextLineHeightFactor
     val maxChars = lines.maxOfOrNull { it.length } ?: 0
     val width = (maxChars * text.sizePx * 0.55f).coerceAtLeast(text.sizePx)
     val height = lineHeight * lines.size.coerceAtLeast(1)

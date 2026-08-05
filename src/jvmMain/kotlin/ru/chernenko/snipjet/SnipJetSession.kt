@@ -22,8 +22,10 @@ class SnipJetSession {
     var activeTabId by mutableStateOf<Long?>(null)
         private set
 
-    /** Bumped on undo/redo/push so UI can refresh enabled flags. */
-    var historyRevision by mutableIntStateOf(0)
+    /** Refreshed on undo/redo/push so UI can bind undo/redo button state. */
+    var canUndoActive by mutableStateOf(false)
+        private set
+    var canRedoActive by mutableStateOf(false)
         private set
 
     private var nextTabId by mutableLongStateOf(1L)
@@ -107,6 +109,8 @@ class SnipJetSession {
         histories.getOrPut(tabId) { AnnotationHistory() }
 
     private fun touchHistory() {
-        historyRevision += 1
+        val tabId = activeTabId
+        canUndoActive = tabId != null && canUndo(tabId)
+        canRedoActive = tabId != null && canRedo(tabId)
     }
 }

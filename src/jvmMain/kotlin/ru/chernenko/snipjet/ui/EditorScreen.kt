@@ -1,59 +1,24 @@
 package ru.chernenko.snipjet.ui
 
-import androidx.compose.foundation.Canvas
-import androidx.compose.foundation.HorizontalScrollbar
-import androidx.compose.foundation.Image
-import androidx.compose.foundation.VerticalScrollbar
-import androidx.compose.foundation.background
-import androidx.compose.foundation.focusable
+import androidx.compose.foundation.*
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
-import androidx.compose.foundation.horizontalScroll
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.fillMaxHeight
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.rememberScrollbarAdapter
-import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.layout.*
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.VerticalDivider
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.key
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.setValue
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.Path
-import androidx.compose.ui.graphics.StrokeCap
-import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.DrawScope
-import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.graphics.skiaCanvas
 import androidx.compose.ui.graphics.painter.BitmapPainter
-import androidx.compose.ui.graphics.toArgb
-import androidx.compose.ui.input.key.Key
-import androidx.compose.ui.input.key.KeyEventType
-import androidx.compose.ui.input.key.isCtrlPressed
-import androidx.compose.ui.input.key.isMetaPressed
-import androidx.compose.ui.input.key.key
-import androidx.compose.ui.input.key.onPreviewKeyEvent
-import androidx.compose.ui.input.key.type
-import androidx.compose.ui.input.key.utf16CodePoint
+import androidx.compose.ui.graphics.skiaCanvas
+import androidx.compose.ui.input.key.*
 import androidx.compose.ui.input.pointer.changedToUp
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
@@ -61,29 +26,23 @@ import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
+import kotlin.coroutines.resume
 import org.jetbrains.skia.Font
-import org.jetbrains.skia.Paint as SkiaPaint
 import org.jetbrains.skia.PaintMode
 import ru.chernenko.snipjet.clipboard.ImageClipboard
-import ru.chernenko.snipjet.clipboard.LinuxImageClipboard
 import ru.chernenko.snipjet.config.MessageKeys
 import ru.chernenko.snipjet.config.Messages
-import ru.chernenko.snipjet.editor.EditorAnnotation
-import ru.chernenko.snipjet.editor.EditorTab
-import ru.chernenko.snipjet.editor.StrokeAnnotation
-import ru.chernenko.snipjet.editor.TextAnnotation
-import ru.chernenko.snipjet.editor.composeAnnotatedPng
-import ru.chernenko.snipjet.editor.eraseAnnotationsAlongPath
-import ru.chernenko.snipjet.editor.matchTypeface
-import ru.chernenko.snipjet.editor.resolveDefaultTextFontFamily
-import ru.chernenko.snipjet.editor.systemFontFamilies
+import ru.chernenko.snipjet.editor.*
 import java.awt.FileDialog
 import java.awt.Frame
 import java.io.File
 import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
 import javax.swing.SwingUtilities
+import org.jetbrains.skia.Paint as SkiaPaint
+import ru.chernenko.snipjet.editor.drawAnnotation as drawSkiaAnnotation
 
 private data class ToolStrokeSettings(
     val alpha: Float,
@@ -99,7 +58,6 @@ private val DefaultPenSettings = ToolStrokeSettings(alpha = 1f, widthPx = 4f)
 private val DefaultMarkerSettings = ToolStrokeSettings(alpha = 0.45f, widthPx = 16f)
 private val DefaultTextSettings = TextToolSettings(alpha = 1f, sizePt = DefaultTextFontSizePt)
 private const val EraserRadiusPx = 20f
-private const val TextLineHeightFactor = 1.2f
 private const val CaretBlinkMs = 530L
 
 @Composable
@@ -115,7 +73,7 @@ fun EditorScreen(
     redoEnabled: Boolean,
     onNewCapture: () -> Unit,
     onBeforeAnnotatedCopy: () -> Unit = {},
-    clipboard: ImageClipboard = remember { LinuxImageClipboard() },
+    clipboard: ImageClipboard,
 ) {
     val image = tab.image
     val annotations = tab.annotations
@@ -147,9 +105,6 @@ fun EditorScreen(
     val activeStrokeSettings = when (selectedTool) {
         EditorTool.Marker -> markerSettings
         else -> penSettings
-    }
-    val enabledTools = remember {
-        setOf(EditorTool.Pen, EditorTool.Marker, EditorTool.Eraser, EditorTool.Text)
     }
     val canvasBg = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)
     val dotColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.35f)
@@ -207,16 +162,22 @@ fun EditorScreen(
         }
     }
 
+    suspend fun exportAnnotatedPng(): ByteArray {
+        val annotationsSnapshot = annotations
+        val imageSnapshot = image
+        return withContext(Dispatchers.IO) {
+            composeAnnotatedPng(imageSnapshot, annotationsSnapshot)
+        }
+    }
+
     fun copyToClipboard() {
         if (copyInProgress) return
         copyInProgress = true
         onBeforeAnnotatedCopy()
-        val annotationsSnapshot = annotations
-        val imageSnapshot = image
         scope.launch {
             try {
+                val pngBytes = exportAnnotatedPng()
                 withContext(Dispatchers.IO) {
-                    val pngBytes = composeAnnotatedPng(imageSnapshot, annotationsSnapshot)
                     clipboard.copyPngBytes(pngBytes)
                 }
             } catch (_: Exception) {
@@ -230,13 +191,11 @@ fun EditorScreen(
     fun saveToFile() {
         if (saveInProgress) return
         saveInProgress = true
-        val annotationsSnapshot = annotations
-        val imageSnapshot = image
         scope.launch {
             try {
                 val path = chooseSavePngPath() ?: return@launch
+                val pngBytes = exportAnnotatedPng()
                 withContext(Dispatchers.IO) {
-                    val pngBytes = composeAnnotatedPng(imageSnapshot, annotationsSnapshot)
                     File(path).writeBytes(pngBytes)
                 }
             } catch (_: Exception) {
@@ -364,9 +323,7 @@ fun EditorScreen(
         Row(modifier = Modifier.weight(1f).fillMaxWidth()) {
             EditorToolbar(
                 selected = selectedTool,
-                enabledTools = enabledTools,
                 onSelect = { tool ->
-                    if (tool !in enabledTools) return@EditorToolbar
                     if (isEditingText && tool != EditorTool.Text) {
                         confirmText()
                     }
@@ -648,7 +605,7 @@ fun EditorScreen(
                                             underline = textUnderline,
                                         )
                                         if (textDraft.isNotEmpty()) {
-                                            drawAnnotationText(draftAnnotation, scaleX, scaleY)
+                                            drawAnnotation(draftAnnotation, scaleX, scaleY)
                                         }
                                         if (caretVisible) {
                                             drawTextCaret(
@@ -698,80 +655,27 @@ private fun DrawScope.drawAnnotation(
     scaleX: Float,
     scaleY: Float,
 ) {
-    when (annotation) {
-        is StrokeAnnotation -> drawAnnotationStroke(annotation, scaleX, scaleY)
-        is TextAnnotation -> drawAnnotationText(annotation, scaleX, scaleY)
+    val strokePaint = SkiaPaint().apply {
+        isAntiAlias = true
+        mode = PaintMode.STROKE
+        strokeCap = org.jetbrains.skia.PaintStrokeCap.ROUND
+        strokeJoin = org.jetbrains.skia.PaintStrokeJoin.ROUND
     }
-}
-
-private fun DrawScope.drawAnnotationStroke(
-    stroke: StrokeAnnotation,
-    scaleX: Float,
-    scaleY: Float,
-) {
-    val points = stroke.points
-    if (points.size < 2) return
-    val path = Path().apply {
-        val first = points.first()
-        moveTo(first.x * scaleX, first.y * scaleY)
-        for (i in 1 until points.size) {
-            val p = points[i]
-            lineTo(p.x * scaleX, p.y * scaleY)
-        }
-    }
-    drawPath(
-        path = path,
-        color = stroke.color,
-        style = Stroke(
-            width = stroke.widthPx * ((scaleX + scaleY) / 2f),
-            cap = StrokeCap.Round,
-            join = StrokeJoin.Round,
-        ),
-    )
-}
-
-private fun DrawScope.drawAnnotationText(
-    text: TextAnnotation,
-    scaleX: Float,
-    scaleY: Float,
-) {
-    if (text.text.isEmpty()) return
-    val scale = (scaleX + scaleY) / 2f
-    val sizePx = text.sizePx * scale
-    val lineHeight = sizePx * TextLineHeightFactor
-    val typeface = matchTypeface(text.fontFamily, text.bold, text.italic)
-    val font = Font(typeface, sizePx)
-    val originX = text.position.x * scaleX
-    val originY = text.position.y * scaleY
-    val paint = SkiaPaint().apply {
-        color = text.color.toArgb()
+    val fillPaint = SkiaPaint().apply {
         isAntiAlias = true
         mode = PaintMode.FILL
     }
     try {
-        val lines = text.text.split('\n')
-        lines.forEachIndexed { index, line ->
-            val y = originY + index * lineHeight
-            drawContext.canvas.skiaCanvas.drawString(line, originX, y, font, paint)
-            if (text.underline && line.isNotEmpty()) {
-                val width = font.measureTextWidth(line)
-                paint.mode = PaintMode.STROKE
-                paint.strokeWidth = (sizePx * 0.08f).coerceAtLeast(1f)
-                val underlineY = y + sizePx * 0.12f
-                drawContext.canvas.skiaCanvas.drawLine(
-                    originX,
-                    underlineY,
-                    originX + width,
-                    underlineY,
-                    paint,
-                )
-                paint.mode = PaintMode.FILL
-            }
-        }
+        drawContext.canvas.skiaCanvas.drawSkiaAnnotation(
+            annotation = annotation,
+            strokePaint = strokePaint,
+            fillPaint = fillPaint,
+            scaleX = scaleX,
+            scaleY = scaleY,
+        )
     } finally {
-        paint.close()
-        font.close()
-        typeface.close()
+        strokePaint.close()
+        fillPaint.close()
     }
 }
 
@@ -871,28 +775,25 @@ private fun isTextInputCodePoint(code: Int): Boolean {
     }
 }
 
-private fun chooseSavePngPath(): String? {
-    fun showDialog(): String? {
+private suspend fun chooseSavePngPath(): String? = suspendCancellableCoroutine { continuation ->
+    SwingUtilities.invokeLater {
+        if (!continuation.isActive) return@invokeLater
         val dialog = FileDialog(null as Frame?, Messages.get(MessageKeys.EDITOR_SAVE), FileDialog.SAVE)
         dialog.file = "snipjet-${LocalDateTime.now().format(SaveFileTimestampFormat)}.png"
         dialog.isVisible = true
-        val directory = dialog.directory ?: return null
-        val fileName = dialog.file ?: return null
-        val withExt = if (fileName.endsWith(".png", ignoreCase = true)) {
-            fileName
+        val directory = dialog.directory
+        val fileName = dialog.file
+        val path = if (directory == null || fileName == null) {
+            null
         } else {
-            "$fileName.png"
+            val withExt = if (fileName.endsWith(".png", ignoreCase = true)) {
+                fileName
+            } else {
+                "$fileName.png"
+            }
+            File(directory, withExt).absolutePath
         }
-        return File(directory, withExt).absolutePath
+        continuation.resume(path)
     }
-
-    if (SwingUtilities.isEventDispatchThread()) {
-        return showDialog()
-    }
-    var path: String? = null
-    SwingUtilities.invokeAndWait {
-        path = showDialog()
-    }
-    return path
 }
 

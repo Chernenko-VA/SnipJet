@@ -14,7 +14,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import ru.chernenko.snipjet.SnipJetSession
 import ru.chernenko.snipjet.capture.AreaCaptureRunner
-import ru.chernenko.snipjet.capture.CaptureOutcome
+import ru.chernenko.snipjet.capture.CaptureHandlers
 import ru.chernenko.snipjet.config.MessageKeys
 import ru.chernenko.snipjet.config.Messages
 
@@ -33,9 +33,8 @@ fun SnipJetApp(
 
     val tabs = session.tabs
     val editorOpen = session.editorOpen
-    // Observe history so undo/redo button state refreshes.
-    @Suppress("UNUSED_VARIABLE")
-    val historyRevision = session.historyRevision
+    val canUndoActive = session.canUndoActive
+    val canRedoActive = session.canRedoActive
 
     LaunchedEffect(editorOpen) {
         onEditorOpen(editorOpen)
@@ -49,25 +48,25 @@ fun SnipJetApp(
     fun startCaptureFromEditor() {
         if (captureJob?.isActive == true) return
         captureJob = scope.launch {
-            when (val outcome = captureRunner.captureArea(onVisibilityForCapture)) {
-                is CaptureOutcome.Success -> {
-                    session.openTab(outcome.image)
-                    captureRunner.copyPngInBackground(scope, outcome.pngBytes)
-                }
-                CaptureOutcome.Cancelled -> Unit
-                CaptureOutcome.NeedInstall -> {
-                    captureErrorTitle = Messages.get(MessageKeys.STATUS_NEED_INSTALL_TITLE)
-                    captureErrorMessage = Messages.get(MessageKeys.STATUS_NEED_INSTALL_HINT)
-                }
-                CaptureOutcome.NeedClipboard -> {
-                    captureErrorTitle = Messages.get(MessageKeys.STATUS_NEED_CLIPBOARD_TITLE)
-                    captureErrorMessage = Messages.get(MessageKeys.STATUS_NEED_CLIPBOARD_HINT)
-                }
-                is CaptureOutcome.Failed -> {
-                    captureErrorTitle = Messages.get(MessageKeys.ERROR_CAPTURE_FAILED)
-                    captureErrorMessage = outcome.message
-                }
-            }
+            captureRunner.captureAreaAndDispatch(
+                scope = scope,
+                onVisibilityForCapture = onVisibilityForCapture,
+                handlers = CaptureHandlers(
+                    onSuccess = { outcome -> session.openTab(outcome.image) },
+                    onNeedInstall = {
+                        captureErrorTitle = Messages.get(MessageKeys.STATUS_NEED_INSTALL_TITLE)
+                        captureErrorMessage = Messages.get(MessageKeys.STATUS_NEED_INSTALL_HINT)
+                    },
+                    onNeedClipboard = {
+                        captureErrorTitle = Messages.get(MessageKeys.STATUS_NEED_CLIPBOARD_TITLE)
+                        captureErrorMessage = Messages.get(MessageKeys.STATUS_NEED_CLIPBOARD_HINT)
+                    },
+                    onFailed = { message ->
+                        captureErrorTitle = Messages.get(MessageKeys.ERROR_CAPTURE_FAILED)
+                        captureErrorMessage = message
+                    },
+                ),
+            )
         }
     }
 
@@ -94,10 +93,11 @@ fun SnipJetApp(
             onAnnotationsChange = session::updateAnnotations,
             onUndo = { session.undo(activeTab.id) },
             onRedo = { session.redo(activeTab.id) },
-            undoEnabled = session.canUndo(activeTab.id),
-            redoEnabled = session.canRedo(activeTab.id),
+            undoEnabled = canUndoActive,
+            redoEnabled = canRedoActive,
             onNewCapture = ::startCaptureFromEditor,
             onBeforeAnnotatedCopy = captureRunner::cancelBackgroundCopy,
+            clipboard = captureRunner.clipboard(),
         )
     } else {
         StatusApp(

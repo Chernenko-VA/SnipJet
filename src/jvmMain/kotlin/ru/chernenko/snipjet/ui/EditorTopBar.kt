@@ -56,13 +56,13 @@ fun EditorTopBar(
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 Icon(
                     painter = brandIcon,
-                    contentDescription = AppConfig.appTitle,
+                    contentDescription = AppConfig.settings.app.title,
                     Modifier.size(28.dp),
                     tint = Color.Unspecified,
                 )
                 Spacer(Modifier.height(2.dp))
                 Text(
-                    text = AppConfig.appTitle,
+                    text = AppConfig.settings.app.title,
                     style = MaterialTheme.typography.labelMedium,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,

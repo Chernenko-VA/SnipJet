@@ -35,11 +35,6 @@ class AnnotationHistory(
         return next
     }
 
-    fun clear() {
-        undoStack.clear()
-        redoStack.clear()
-    }
-
     companion object {
         const val MaxUndoEntries = 10
     }

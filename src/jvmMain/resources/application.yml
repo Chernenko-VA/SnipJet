@@ -1,31 +1,11 @@
-app:
-  title: SnipJet
+# Override defaults in ~/.config/snipjet/application.yml
 
 window:
-  widthDp: 480
-  heightDp: 360
   # Fixed editor size; set both to 0 to use ~2/3 x 7/8 of the screen.
   editorWidthDp: 0
   editorHeightDp: 0
-  alwaysOnTop: false
   # TopEnd | BottomEnd | TopStart | BottomStart | Center
   position: TopEnd
-  hideDelayMs: 300
 
 capture:
-  command: gnome-screenshot
-  timeoutSeconds: 300
-  tempPrefix: snipjet-
-  pathCandidates:
-    - /usr/bin/gnome-screenshot
-    - /bin/gnome-screenshot
-    - /usr/local/bin/gnome-screenshot
-
-clipboard:
-  wlCopyCommand: wl-copy
-  wlCopyTypeFlag: --type
-  wlCopyMime: image/png
-  pathCandidates:
-    - /usr/bin/wl-copy
-    - /bin/wl-copy
-    - /usr/local/bin/wl-copy
+  hideDelayMs: 300

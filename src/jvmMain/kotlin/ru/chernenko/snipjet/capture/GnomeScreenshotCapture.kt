@@ -3,17 +3,18 @@ package ru.chernenko.snipjet.capture
 import ru.chernenko.snipjet.config.AppConfig
 import ru.chernenko.snipjet.config.MessageKeys
 import ru.chernenko.snipjet.config.Messages
+import ru.chernenko.snipjet.platform.drainProcessOutput
+import ru.chernenko.snipjet.platform.resolveExecutable
 import java.io.IOException
-import java.io.InputStream
 import java.nio.file.Files
 import java.nio.file.Path
 import java.util.concurrent.TimeUnit
 
 class GnomeScreenshotCapture(
-    private val command: String = AppConfig.captureCommand,
-    private val timeoutSeconds: Long = AppConfig.captureTimeoutSeconds,
-    private val pathCandidates: List<String> = AppConfig.capturePathCandidates,
-    private val tempPrefix: String = AppConfig.captureTempPrefix,
+    private val command: String = AppConfig.settings.capture.command,
+    private val timeoutSeconds: Long = AppConfig.settings.capture.timeoutSeconds,
+    private val pathCandidates: List<String> = AppConfig.settings.capture.pathCandidates,
+    private val tempPrefix: String = AppConfig.settings.capture.tempPrefix,
 ) : ScreenCapture {
 
     override fun isAvailable(): Boolean = resolveCommandPath() != null
@@ -28,7 +29,7 @@ class GnomeScreenshotCapture(
                 .start()
 
             val stdout = StringBuilder()
-            val drain = drainAsync(process.inputStream, stdout)
+            val drain = drainProcessOutput(process.inputStream, stdout)
 
             val finished = process.waitFor(timeoutSeconds, TimeUnit.SECONDS)
             if (!finished) {
@@ -59,39 +60,8 @@ class GnomeScreenshotCapture(
         }
     }
 
-    private fun resolveCommandPath(): String? {
-        val fromWhich = which(command)
-        if (fromWhich.isNotEmpty()) return fromWhich
-        return pathCandidates.firstOrNull { Files.isExecutable(Path.of(it)) }
-    }
-
-    private fun which(cmd: String): String {
-        return try {
-            val p = ProcessBuilder("which", cmd).redirectErrorStream(true).start()
-            val out = StringBuilder()
-            val drain = drainAsync(p.inputStream, out)
-            val code = p.waitFor()
-            drain.join(2_000)
-            if (code == 0 && out.isNotBlank()) out.toString().trim() else ""
-        } catch (_: Exception) {
-            ""
-        }
-    }
-
-    private fun drainAsync(stream: InputStream, sink: StringBuilder): Thread {
-        return Thread {
-            stream.bufferedReader().use { reader ->
-                reader.forEachLine { line ->
-                    if (sink.length < 8_000) {
-                        sink.appendLine(line)
-                    }
-                }
-            }
-        }.also {
-            it.isDaemon = true
-            it.start()
-        }
-    }
+    private fun resolveCommandPath(): String? =
+        resolveExecutable(command, pathCandidates)
 }
 
 class ScreenCaptureException(message: String, cause: Throwable? = null) : Exception(message, cause)

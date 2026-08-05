@@ -31,6 +31,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import ru.chernenko.snipjet.capture.AreaCaptureRunner
+import ru.chernenko.snipjet.capture.CaptureHandlers
 import ru.chernenko.snipjet.capture.CaptureOutcome
 import ru.chernenko.snipjet.config.MessageKeys
 import ru.chernenko.snipjet.config.Messages
@@ -38,12 +39,8 @@ import ru.chernenko.snipjet.config.Messages
 private sealed interface StatusPhase {
     data object Checking : StatusPhase
     data object Ready : StatusPhase
-    data object NeedInstall : StatusPhase
-    data object NeedClipboard : StatusPhase
     data object Capturing : StatusPhase
-    data object Copied : StatusPhase
-    data object Cancelled : StatusPhase
-    data class Failed(val message: String) : StatusPhase
+    data class Outcome(val value: CaptureOutcome) : StatusPhase
 }
 
 private data class StatusContent(
@@ -66,7 +63,7 @@ fun StatusApp(
     onVisibilityForCapture: (visible: Boolean) -> Unit,
     onCaptureReady: (ImageBitmap) -> Unit,
     onExit: () -> Unit,
-    captureRunner: AreaCaptureRunner = remember { AreaCaptureRunner() },
+    captureRunner: AreaCaptureRunner,
 ) {
     var phase by remember { mutableStateOf<StatusPhase>(StatusPhase.Checking) }
     val scope = rememberCoroutineScope()
@@ -77,17 +74,20 @@ fun StatusApp(
         if (!captureRunner.isCaptureAvailable() || !captureRunner.isClipboardAvailable()) return
         phase = StatusPhase.Capturing
         captureJob = scope.launch {
-            when (val outcome = captureRunner.captureArea(onVisibilityForCapture)) {
-                is CaptureOutcome.Success -> {
-                    onCaptureReady(outcome.image)
-                    phase = StatusPhase.Ready
-                    captureRunner.copyPngInBackground(scope, outcome.pngBytes)
-                }
-                is CaptureOutcome.Cancelled -> phase = StatusPhase.Cancelled
-                is CaptureOutcome.NeedInstall -> phase = StatusPhase.NeedInstall
-                is CaptureOutcome.NeedClipboard -> phase = StatusPhase.NeedClipboard
-                is CaptureOutcome.Failed -> phase = StatusPhase.Failed(outcome.message)
-            }
+            captureRunner.captureAreaAndDispatch(
+                scope = scope,
+                onVisibilityForCapture = onVisibilityForCapture,
+                handlers = CaptureHandlers(
+                    onSuccess = { outcome ->
+                        onCaptureReady(outcome.image)
+                        phase = StatusPhase.Ready
+                    },
+                    onCancelled = { phase = StatusPhase.Outcome(CaptureOutcome.Cancelled) },
+                    onNeedInstall = { phase = StatusPhase.Outcome(CaptureOutcome.NeedInstall) },
+                    onNeedClipboard = { phase = StatusPhase.Outcome(CaptureOutcome.NeedClipboard) },
+                    onFailed = { message -> phase = StatusPhase.Outcome(CaptureOutcome.Failed(message)) },
+                ),
+            )
         }
     }
 
@@ -95,11 +95,15 @@ fun StatusApp(
         scope.launch {
             val captureOk = withContext(Dispatchers.IO) { captureRunner.isCaptureAvailable() }
             if (!captureOk) {
-                phase = StatusPhase.NeedInstall
+                phase = StatusPhase.Outcome(CaptureOutcome.NeedInstall)
                 return@launch
             }
             val clipboardOk = withContext(Dispatchers.IO) { captureRunner.isClipboardAvailable() }
-            phase = if (clipboardOk) StatusPhase.Ready else StatusPhase.NeedClipboard
+            phase = if (clipboardOk) {
+                StatusPhase.Ready
+            } else {
+                StatusPhase.Outcome(CaptureOutcome.NeedClipboard)
+            }
         }
     }
 
@@ -235,25 +239,29 @@ private fun StatusPhase.toContent(): StatusContent = when (this) {
         title = Messages.get(MessageKeys.STATUS_READY_TITLE),
         hint = Messages.get(MessageKeys.STATUS_READY_HINT),
     )
-    is StatusPhase.Copied -> StatusContent(
-        title = Messages.get(MessageKeys.STATUS_COPIED_TITLE),
-        hint = Messages.get(MessageKeys.STATUS_COPIED_HINT),
+    is StatusPhase.Outcome -> value.toStatusContent()
+}
+
+private fun CaptureOutcome.toStatusContent(): StatusContent = when (this) {
+    is CaptureOutcome.Success -> StatusContent(
+        title = Messages.get(MessageKeys.STATUS_READY_TITLE),
+        hint = Messages.get(MessageKeys.STATUS_READY_HINT),
     )
-    is StatusPhase.Cancelled -> StatusContent(
+    CaptureOutcome.Cancelled -> StatusContent(
         title = Messages.get(MessageKeys.STATUS_CANCELLED_TITLE),
         hint = Messages.get(MessageKeys.STATUS_CANCELLED_HINT),
     )
-    is StatusPhase.NeedInstall -> StatusContent(
+    CaptureOutcome.NeedInstall -> StatusContent(
         title = Messages.get(MessageKeys.STATUS_NEED_INSTALL_TITLE),
         hint = Messages.get(MessageKeys.STATUS_NEED_INSTALL_HINT),
         command = Messages.get(MessageKeys.STATUS_NEED_INSTALL_COMMAND),
     )
-    is StatusPhase.NeedClipboard -> StatusContent(
+    CaptureOutcome.NeedClipboard -> StatusContent(
         title = Messages.get(MessageKeys.STATUS_NEED_CLIPBOARD_TITLE),
         hint = Messages.get(MessageKeys.STATUS_NEED_CLIPBOARD_HINT),
         command = Messages.get(MessageKeys.STATUS_NEED_CLIPBOARD_COMMAND),
     )
-    is StatusPhase.Failed -> StatusContent(errorMessage = message)
+    is CaptureOutcome.Failed -> StatusContent(errorMessage = message)
 }
 
 private fun StatusPhase.toActionBarState(
@@ -261,12 +269,14 @@ private fun StatusPhase.toActionBarState(
     captureAvailable: Boolean,
     clipboardAvailable: Boolean,
 ): ActionBarState {
-    val needsDependency = this is StatusPhase.NeedInstall || this is StatusPhase.NeedClipboard
-    val captureLabel = when (this) {
-        is StatusPhase.Ready, is StatusPhase.NeedInstall, is StatusPhase.NeedClipboard,
-        is StatusPhase.Checking, is StatusPhase.Capturing,
-        -> Messages.get(MessageKeys.STATUS_READY_CAPTURE)
-        else -> Messages.get(MessageKeys.STATUS_NEW_CAPTURE)
+    val outcome = (this as? StatusPhase.Outcome)?.value
+    val needsDependency = outcome is CaptureOutcome.NeedInstall ||
+        outcome is CaptureOutcome.NeedClipboard
+    val captureLabel = when (outcome) {
+        is CaptureOutcome.Cancelled, is CaptureOutcome.Failed -> {
+            Messages.get(MessageKeys.STATUS_NEW_CAPTURE)
+        }
+        else -> Messages.get(MessageKeys.STATUS_READY_CAPTURE)
     }
     val captureEnabled = !busy &&
         !needsDependency &&

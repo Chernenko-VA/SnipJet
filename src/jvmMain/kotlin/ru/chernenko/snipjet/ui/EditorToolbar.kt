@@ -17,9 +17,9 @@ import androidx.compose.ui.unit.dp
 @Composable
 fun EditorToolbar(
     selected: EditorTool,
-    enabledTools: Set<EditorTool>,
     onSelect: (EditorTool) -> Unit,
     modifier: Modifier = Modifier,
+    enabledTools: Set<EditorTool> = EditorTool.entries.toSet(),
 ) {
     Surface(
         modifier = modifier.width(56.dp),

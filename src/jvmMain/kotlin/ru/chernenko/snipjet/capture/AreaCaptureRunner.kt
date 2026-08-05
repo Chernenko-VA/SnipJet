@@ -27,6 +27,14 @@ sealed interface CaptureOutcome {
     data class Failed(val message: String) : CaptureOutcome
 }
 
+data class CaptureHandlers(
+    val onSuccess: (CaptureOutcome.Success) -> Unit,
+    val onCancelled: () -> Unit = {},
+    val onNeedInstall: () -> Unit = {},
+    val onNeedClipboard: () -> Unit = {},
+    val onFailed: (String) -> Unit = {},
+)
+
 /**
  * Shared area-capture flow: hide window → gnome-screenshot → load PNG → show window.
  */
@@ -41,6 +49,8 @@ class AreaCaptureRunner(
 
     fun isClipboardAvailable(): Boolean = clipboard.isAvailable()
 
+    fun clipboard(): ImageClipboard = clipboard
+
     suspend fun captureArea(
         onVisibilityForCapture: (visible: Boolean) -> Unit,
     ): CaptureOutcome {
@@ -48,7 +58,7 @@ class AreaCaptureRunner(
         if (!clipboard.isAvailable()) return CaptureOutcome.NeedClipboard
 
         onVisibilityForCapture(false)
-        delay(AppConfig.windowHideDelayMs)
+        delay(AppConfig.settings.capture.hideDelayMs)
 
         var tempFile: java.nio.file.Path? = null
         return try {
@@ -58,7 +68,6 @@ class AreaCaptureRunner(
             CaptureOutcome.Success(bitmap, pngBytes)
         } catch (e: ScreenCaptureException) {
             when {
-                !capture.isAvailable() -> CaptureOutcome.NeedInstall
                 e.isCancellationLike() -> CaptureOutcome.Cancelled
                 else -> CaptureOutcome.Failed(
                     e.message ?: Messages.get(
@@ -74,6 +83,23 @@ class AreaCaptureRunner(
         } finally {
             onVisibilityForCapture(true)
             tempFile?.let { Files.deleteIfExists(it) }
+        }
+    }
+
+    suspend fun captureAreaAndDispatch(
+        scope: CoroutineScope,
+        onVisibilityForCapture: (visible: Boolean) -> Unit,
+        handlers: CaptureHandlers,
+    ) {
+        when (val outcome = captureArea(onVisibilityForCapture)) {
+            is CaptureOutcome.Success -> {
+                handlers.onSuccess(outcome)
+                copyPngInBackground(scope, outcome.pngBytes)
+            }
+            CaptureOutcome.Cancelled -> handlers.onCancelled()
+            CaptureOutcome.NeedInstall -> handlers.onNeedInstall()
+            CaptureOutcome.NeedClipboard -> handlers.onNeedClipboard()
+            is CaptureOutcome.Failed -> handlers.onFailed(outcome.message)
         }
     }
 
