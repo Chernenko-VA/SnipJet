@@ -43,7 +43,7 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.graphics.nativeCanvas
+import androidx.compose.ui.graphics.skiaCanvas
 import androidx.compose.ui.graphics.painter.BitmapPainter
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.input.key.Key
@@ -752,13 +752,13 @@ private fun DrawScope.drawAnnotationText(
         val lines = text.text.split('\n')
         lines.forEachIndexed { index, line ->
             val y = originY + index * lineHeight
-            drawContext.canvas.nativeCanvas.drawString(line, originX, y, font, paint)
+            drawContext.canvas.skiaCanvas.drawString(line, originX, y, font, paint)
             if (text.underline && line.isNotEmpty()) {
                 val width = font.measureTextWidth(line)
                 paint.mode = PaintMode.STROKE
                 paint.strokeWidth = (sizePx * 0.08f).coerceAtLeast(1f)
                 val underlineY = y + sizePx * 0.12f
-                drawContext.canvas.nativeCanvas.drawLine(
+                drawContext.canvas.skiaCanvas.drawLine(
                     originX,
                     underlineY,
                     originX + width,

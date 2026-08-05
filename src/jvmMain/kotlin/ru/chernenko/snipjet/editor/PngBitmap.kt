@@ -1,9 +1,12 @@
 package ru.chernenko.snipjet.editor
 
 import androidx.compose.ui.graphics.ImageBitmap
-import androidx.compose.ui.res.loadImageBitmap
+import androidx.compose.ui.graphics.toComposeImageBitmap
+import org.jetbrains.skia.Image
 import java.nio.file.Files
 import java.nio.file.Path
 
-fun loadPngImageBitmap(path: Path): ImageBitmap =
-    Files.newInputStream(path).buffered().use { loadImageBitmap(it) }
+fun loadPngImageBitmap(path: Path): ImageBitmap {
+    val bytes = Files.readAllBytes(path)
+    return Image.makeFromEncoded(bytes).toComposeImageBitmap()
+}

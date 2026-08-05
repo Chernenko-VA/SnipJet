@@ -21,9 +21,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.painter.Painter
-import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.res.loadSvgPainter
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import ru.chernenko.snipjet.config.AppConfig
@@ -44,11 +41,11 @@ fun EditorTopBar(
     saveEnabled: Boolean = false,
 ) {
     val brandIcon = remember { loadAppIcon() }
-    val undoIcon = rememberSvgIcon("icon/undo.svg")
-    val redoIcon = rememberSvgIcon("icon/redo.svg")
-    val copyIcon = rememberSvgIcon("icon/copy.svg")
-    val saveIcon = rememberSvgIcon("icon/save.svg")
-    val newCaptureIcon = rememberSvgIcon("icon/new_capture.svg")
+    val undoIcon = rememberClasspathBitmapPainter("icon/undo.png")
+    val redoIcon = rememberClasspathBitmapPainter("icon/redo.png")
+    val copyIcon = rememberClasspathBitmapPainter("icon/copy.png")
+    val saveIcon = rememberClasspathBitmapPainter("icon/save.png")
+    val newCaptureIcon = rememberClasspathBitmapPainter("icon/new_capture.png")
 
     Surface(tonalElevation = 1.dp) {
         Row(
@@ -122,15 +119,5 @@ fun EditorTopBar(
                 }
             }
         }
-    }
-}
-
-@Composable
-internal fun rememberSvgIcon(path: String): Painter {
-    val density = LocalDensity.current
-    return remember(path, density) {
-        val stream = Thread.currentThread().contextClassLoader.getResourceAsStream(path)
-            ?: error("Missing resource $path")
-        stream.use { loadSvgPainter(it, density) }
     }
 }
