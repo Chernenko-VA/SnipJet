@@ -1,69 +1,29 @@
 package ru.chernenko.snipjet.config
 
-import org.yaml.snakeyaml.Yaml
-import java.io.InputStreamReader
-import java.nio.charset.StandardCharsets
-
 /**
- * Loads [application.yml] from the classpath once.
+ * Application settings loaded once from bundled [application.yml],
+ * overridden by `~/.config/snipjet/application.yml` when present.
  */
 object AppConfig {
-    private val root: Map<String, Any?> = loadRoot()
+    private val settings: AppSettings = AppSettingsLoader.load()
 
-    val appTitle: String get() = string("app", "title") ?: "SnipJet"
+    val appTitle: String get() = settings.app.title
 
-    val windowWidthDp: Int get() = int("window", "widthDp") ?: 420
-    val windowHeightDp: Int get() = int("window", "heightDp") ?: 220
-    val editorWidthDp: Int get() = int("window", "editorWidthDp") ?: 900
-    val editorHeightDp: Int get() = int("window", "editorHeightDp") ?: 700
-    val windowAlwaysOnTop: Boolean get() = bool("window", "alwaysOnTop") ?: false
-    val windowPosition: String get() = string("window", "position") ?: "TopEnd"
-    val windowHideDelayMs: Long get() = long("window", "hideDelayMs") ?: 300L
+    val windowWidthDp: Int get() = settings.window.widthDp
+    val windowHeightDp: Int get() = settings.window.heightDp
+    val editorWidthDp: Int get() = settings.window.editorWidthDp
+    val editorHeightDp: Int get() = settings.window.editorHeightDp
+    val windowAlwaysOnTop: Boolean get() = settings.window.alwaysOnTop
+    val windowPosition: String get() = settings.window.position
+    val windowHideDelayMs: Long get() = settings.window.hideDelayMs
 
-    val captureCommand: String get() = string("capture", "command") ?: "gnome-screenshot"
-    val captureTimeoutSeconds: Long get() = long("capture", "timeoutSeconds") ?: 300L
-    val captureTempPrefix: String get() = string("capture", "tempPrefix") ?: "snipjet-"
+    val captureCommand: String get() = settings.capture.command
+    val captureTimeoutSeconds: Long get() = settings.capture.timeoutSeconds
+    val captureTempPrefix: String get() = settings.capture.tempPrefix
+    val capturePathCandidates: List<String> get() = settings.capture.pathCandidates
 
-    @Suppress("UNCHECKED_CAST")
-    val capturePathCandidates: List<String>
-        get() {
-            val section = root["capture"] as? Map<*, *> ?: return emptyList()
-            val list = section["pathCandidates"] as? List<*> ?: return emptyList()
-            return list.mapNotNull { it?.toString() }.filter { it.isNotBlank() }
-        }
-
-    val clipboardWlCopyCommand: String get() = string("clipboard", "wlCopyCommand") ?: "wl-copy"
-    val clipboardWlCopyTypeFlag: String get() = string("clipboard", "wlCopyTypeFlag") ?: "--type"
-    val clipboardWlCopyMime: String get() = string("clipboard", "wlCopyMime") ?: "image/png"
-
-    @Suppress("UNCHECKED_CAST")
-    val clipboardPathCandidates: List<String>
-        get() {
-            val section = root["clipboard"] as? Map<*, *> ?: return emptyList()
-            val list = section["pathCandidates"] as? List<*> ?: return emptyList()
-            return list.mapNotNull { it?.toString() }.filter { it.isNotBlank() }
-        }
-
-    private fun loadRoot(): Map<String, Any?> {
-        val stream = Thread.currentThread().contextClassLoader.getResourceAsStream("application.yml")
-            ?: error("Missing classpath resource application.yml")
-        return stream.use { input ->
-            @Suppress("UNCHECKED_CAST")
-            Yaml().load(InputStreamReader(input, StandardCharsets.UTF_8)) as Map<String, Any?>
-        }
-    }
-
-    private fun section(name: String): Map<*, *>? = root[name] as? Map<*, *>
-
-    private fun string(sectionName: String, key: String): String? =
-        section(sectionName)?.get(key)?.toString()?.takeIf { it.isNotBlank() }
-
-    private fun int(sectionName: String, key: String): Int? =
-        (section(sectionName)?.get(key) as? Number)?.toInt()
-
-    private fun long(sectionName: String, key: String): Long? =
-        (section(sectionName)?.get(key) as? Number)?.toLong()
-
-    private fun bool(sectionName: String, key: String): Boolean? =
-        section(sectionName)?.get(key) as? Boolean
+    val clipboardWlCopyCommand: String get() = settings.clipboard.wlCopyCommand
+    val clipboardWlCopyTypeFlag: String get() = settings.clipboard.wlCopyTypeFlag
+    val clipboardWlCopyMime: String get() = settings.clipboard.wlCopyMime
+    val clipboardPathCandidates: List<String> get() = settings.clipboard.pathCandidates
 }

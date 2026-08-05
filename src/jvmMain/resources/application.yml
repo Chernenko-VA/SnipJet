@@ -4,8 +4,9 @@ app:
 window:
   widthDp: 480
   heightDp: 360
-  editorWidthDp: 900
-  editorHeightDp: 700
+  # Fixed editor size; set both to 0 to use ~2/3 x 7/8 of the screen.
+  editorWidthDp: 0
+  editorHeightDp: 0
   alwaysOnTop: false
   # TopEnd | BottomEnd | TopStart | BottomStart | Center
   position: TopEnd

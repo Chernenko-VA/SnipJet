@@ -199,6 +199,11 @@ private fun pixelToWindowPosition(point: Point): WindowPosition {
 }
 
 private fun editorScreenDpSize(): DpSize {
+    val configWidth = AppConfig.editorWidthDp
+    val configHeight = AppConfig.editorHeightDp
+    if (configWidth > 0 && configHeight > 0) {
+        return DpSize(configWidth.dp, configHeight.dp)
+    }
     val config = GraphicsEnvironment.getLocalGraphicsEnvironment()
         .defaultScreenDevice
         .defaultConfiguration
@@ -207,7 +212,7 @@ private fun editorScreenDpSize(): DpSize {
     val scaleX = transform.scaleX.coerceAtLeast(1e-6)
     val scaleY = transform.scaleY.coerceAtLeast(1e-6)
     val widthDp = (bounds.width / scaleX * 2.0 / 3.0).toInt().coerceAtLeast(400)
-    val heightDp = (bounds.height / scaleY * 6.0 / 8.0).toInt().coerceAtLeast(300)
+    val heightDp = (bounds.height / scaleY * 7.0 / 8.0).toInt().coerceAtLeast(300)
     return DpSize(widthDp.dp, heightDp.dp)
 }
 
