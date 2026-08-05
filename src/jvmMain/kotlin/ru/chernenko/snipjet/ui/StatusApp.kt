@@ -23,15 +23,12 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import ru.chernenko.snipjet.capture.AreaCaptureRunner
-import ru.chernenko.snipjet.capture.CaptureHandlers
 import ru.chernenko.snipjet.capture.CaptureOutcome
 import ru.chernenko.snipjet.config.MessageKeys
 import ru.chernenko.snipjet.config.Messages
@@ -39,7 +36,6 @@ import ru.chernenko.snipjet.config.Messages
 private sealed interface StatusPhase {
     data object Checking : StatusPhase
     data object Ready : StatusPhase
-    data object Capturing : StatusPhase
     data class Outcome(val value: CaptureOutcome) : StatusPhase
 }
 
@@ -51,87 +47,65 @@ private data class StatusContent(
     val errorMessage: String? = null,
 )
 
-private data class ActionBarState(
-    val captureLabel: String,
-    val captureEnabled: Boolean,
-    val showRetry: Boolean,
-    val exitEnabled: Boolean,
-)
-
+/**
+ * Status UI only. Capture is started by [onStartCapture] (headless, same as --capture).
+ */
 @Composable
 fun StatusApp(
-    onVisibilityForCapture: (visible: Boolean) -> Unit,
-    onCaptureReady: (ImageBitmap) -> Unit,
+    onStartCapture: () -> Unit,
     onExit: () -> Unit,
     captureRunner: AreaCaptureRunner,
+    initialOutcome: CaptureOutcome? = null,
 ) {
-    var phase by remember { mutableStateOf<StatusPhase>(StatusPhase.Checking) }
-    val scope = rememberCoroutineScope()
-    var captureJob by remember { mutableStateOf<Job?>(null) }
-
-    fun runCapture() {
-        if (captureJob?.isActive == true) return
-        if (!captureRunner.isCaptureAvailable() || !captureRunner.isClipboardAvailable()) return
-        phase = StatusPhase.Capturing
-        captureJob = scope.launch {
-            captureRunner.captureAreaAndDispatch(
-                scope = scope,
-                onVisibilityForCapture = onVisibilityForCapture,
-                handlers = CaptureHandlers(
-                    onSuccess = { outcome ->
-                        onCaptureReady(outcome.image)
-                        phase = StatusPhase.Ready
-                    },
-                    onCancelled = { onExit() },
-                    onNeedInstall = {
-                        onVisibilityForCapture(true)
-                        phase = StatusPhase.Outcome(CaptureOutcome.NeedInstall)
-                    },
-                    onNeedClipboard = {
-                        onVisibilityForCapture(true)
-                        phase = StatusPhase.Outcome(CaptureOutcome.NeedClipboard)
-                    },
-                    onFailed = { message ->
-                        onVisibilityForCapture(true)
-                        phase = StatusPhase.Outcome(CaptureOutcome.Failed(message))
-                    },
-                ),
-            )
-        }
+    var phase by remember(initialOutcome) {
+        mutableStateOf(
+            if (initialOutcome != null) {
+                StatusPhase.Outcome(initialOutcome)
+            } else {
+                StatusPhase.Checking
+            },
+        )
     }
+    val scope = rememberCoroutineScope()
 
-    fun checkDependency(autoCapture: Boolean = false) {
+    fun checkDependency() {
         scope.launch {
             val captureOk = withContext(Dispatchers.IO) { captureRunner.isCaptureAvailable() }
             if (!captureOk) {
-                onVisibilityForCapture(true)
                 phase = StatusPhase.Outcome(CaptureOutcome.NeedInstall)
                 return@launch
             }
             val clipboardOk = withContext(Dispatchers.IO) { captureRunner.isClipboardAvailable() }
-            if (!clipboardOk) {
-                onVisibilityForCapture(true)
-                phase = StatusPhase.Outcome(CaptureOutcome.NeedClipboard)
-                return@launch
-            }
-            phase = StatusPhase.Ready
-            if (autoCapture) {
-                runCapture()
+            phase = if (clipboardOk) {
+                StatusPhase.Ready
+            } else {
+                StatusPhase.Outcome(CaptureOutcome.NeedClipboard)
             }
         }
     }
 
-    LaunchedEffect(Unit) {
-        checkDependency(autoCapture = true)
+    LaunchedEffect(initialOutcome) {
+        if (initialOutcome == null) {
+            checkDependency()
+        } else {
+            phase = StatusPhase.Outcome(initialOutcome)
+        }
     }
 
-    val busy = phase is StatusPhase.Capturing || captureJob?.isActive == true
     val content = phase.toContent()
-    val actions = phase.toActionBarState(
-        busy = busy,
-        captureAvailable = captureRunner.isCaptureAvailable(),
-        clipboardAvailable = captureRunner.isClipboardAvailable(),
-    )
+    val outcome = (phase as? StatusPhase.Outcome)?.value
+    val needsDependency = outcome is CaptureOutcome.NeedInstall ||
+        outcome is CaptureOutcome.NeedClipboard
+    val captureLabel = when (outcome) {
+        is CaptureOutcome.Cancelled, is CaptureOutcome.Failed -> {
+            Messages.get(MessageKeys.STATUS_NEW_CAPTURE)
+        }
+        else -> Messages.get(MessageKeys.STATUS_READY_CAPTURE)
+    }
+    val captureEnabled = phase !is StatusPhase.Checking &&
+        !needsDependency &&
+        captureRunner.isCaptureAvailable() &&
+        captureRunner.isClipboardAvailable()
 
     Column(
         modifier = Modifier
@@ -155,22 +129,27 @@ fun StatusApp(
             horizontalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterHorizontally),
         ) {
             Button(
-                onClick = ::runCapture,
-                enabled = actions.captureEnabled,
+                onClick = onStartCapture,
+                enabled = captureEnabled,
                 modifier = Modifier.weight(1f, fill = false),
             ) {
-                Text(actions.captureLabel)
+                Text(captureLabel)
             }
-            if (actions.showRetry) {
+            if (needsDependency) {
                 Button(
-                    onClick = { checkDependency(autoCapture = false) },
-                    enabled = !busy,
+                    onClick = ::checkDependency,
                     modifier = Modifier.weight(1f, fill = false),
                 ) {
                     Text(Messages.get(MessageKeys.STATUS_NEED_INSTALL_RETRY))
                 }
             }
-            ExitButton(onClick = onExit, enabled = actions.exitEnabled)
+            OutlinedButton(onClick = onExit) {
+                Text(
+                    Messages.get(MessageKeys.STATUS_EXIT),
+                    maxLines = 1,
+                    softWrap = false,
+                )
+            }
         }
     }
 }
@@ -223,31 +202,10 @@ private fun StatusContentView(content: StatusContent) {
     }
 }
 
-@Composable
-private fun ExitButton(
-    onClick: () -> Unit,
-    enabled: Boolean = true,
-) {
-    OutlinedButton(
-        onClick = onClick,
-        enabled = enabled,
-    ) {
-        Text(
-            Messages.get(MessageKeys.STATUS_EXIT),
-            maxLines = 1,
-            softWrap = false,
-        )
-    }
-}
-
 private fun StatusPhase.toContent(): StatusContent = when (this) {
     is StatusPhase.Checking -> StatusContent(
         showProgress = true,
         title = Messages.get(MessageKeys.STATUS_CHECKING),
-    )
-    is StatusPhase.Capturing -> StatusContent(
-        showProgress = true,
-        title = Messages.get(MessageKeys.STATUS_CAPTURING),
     )
     is StatusPhase.Ready -> StatusContent(
         title = Messages.get(MessageKeys.STATUS_READY_TITLE),
@@ -276,32 +234,4 @@ private fun CaptureOutcome.toStatusContent(): StatusContent = when (this) {
         command = Messages.get(MessageKeys.STATUS_NEED_CLIPBOARD_COMMAND),
     )
     is CaptureOutcome.Failed -> StatusContent(errorMessage = message)
-}
-
-private fun StatusPhase.toActionBarState(
-    busy: Boolean,
-    captureAvailable: Boolean,
-    clipboardAvailable: Boolean,
-): ActionBarState {
-    val outcome = (this as? StatusPhase.Outcome)?.value
-    val needsDependency = outcome is CaptureOutcome.NeedInstall ||
-        outcome is CaptureOutcome.NeedClipboard
-    val captureLabel = when (outcome) {
-        is CaptureOutcome.Cancelled, is CaptureOutcome.Failed -> {
-            Messages.get(MessageKeys.STATUS_NEW_CAPTURE)
-        }
-        else -> Messages.get(MessageKeys.STATUS_READY_CAPTURE)
-    }
-    val captureEnabled = !busy &&
-        !needsDependency &&
-        this !is StatusPhase.Checking &&
-        this !is StatusPhase.Capturing &&
-        captureAvailable &&
-        clipboardAvailable
-    return ActionBarState(
-        captureLabel = captureLabel,
-        captureEnabled = captureEnabled,
-        showRetry = needsDependency,
-        exitEnabled = this !is StatusPhase.Capturing,
-    )
 }

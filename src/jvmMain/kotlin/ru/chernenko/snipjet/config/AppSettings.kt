@@ -77,7 +77,7 @@ data class CaptureSettings(
     val command: String = "gnome-screenshot",
     val timeoutSeconds: Long = 300,
     val tempPrefix: String = "snipjet-",
-    val hideDelayMs: Long = 400,
+    val hideDelayMs: Long = 300,
     /** Delay before auto-copy so the editor can render first. */
     val backgroundCopyDelayMs: Long = 500,
 ) {

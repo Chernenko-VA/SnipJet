@@ -18,26 +18,29 @@ import ru.chernenko.snipjet.capture.CaptureHandlers
 import ru.chernenko.snipjet.config.MessageKeys
 import ru.chernenko.snipjet.config.Messages
 
+/**
+ * Editor window content. Status lives in a separate Compose [androidx.compose.ui.window.Window].
+ */
 @Composable
-fun SnipJetApp(
+fun EditorApp(
     session: SnipJetSession,
+    captureRunner: AreaCaptureRunner,
     onVisibilityForCapture: (visible: Boolean) -> Unit,
-    onEditorOpen: (open: Boolean) -> Unit,
-    onExit: () -> Unit,
+    pendingBackgroundCopyPng: ByteArray? = null,
 ) {
     val scope = rememberCoroutineScope()
-    val captureRunner = remember { AreaCaptureRunner() }
     var captureJob by remember { mutableStateOf<Job?>(null) }
     var captureErrorTitle by remember { mutableStateOf<String?>(null) }
     var captureErrorMessage by remember { mutableStateOf<String?>(null) }
 
     val tabs = session.tabs
-    val editorOpen = session.editorOpen
     val canUndoActive = session.canUndoActive
     val canRedoActive = session.canRedoActive
+    val activeTab = session.activeTab ?: return
 
-    LaunchedEffect(editorOpen) {
-        onEditorOpen(editorOpen)
+    LaunchedEffect(pendingBackgroundCopyPng) {
+        val bytes = pendingBackgroundCopyPng ?: return@LaunchedEffect
+        captureRunner.copyPngInBackground(bytes)
     }
 
     fun dismissCaptureError() {
@@ -49,7 +52,6 @@ fun SnipJetApp(
         if (captureJob?.isActive == true) return
         captureJob = scope.launch {
             captureRunner.captureAreaAndDispatch(
-                scope = scope,
                 onVisibilityForCapture = onVisibilityForCapture,
                 handlers = CaptureHandlers(
                     onSuccess = { outcome -> session.openTab(outcome.image) },
@@ -83,28 +85,18 @@ fun SnipJetApp(
         )
     }
 
-    val activeTab = session.activeTab
-    if (activeTab != null && tabs.isNotEmpty()) {
-        EditorScreen(
-            tab = activeTab,
-            tabs = tabs,
-            onSelectTab = session::selectTab,
-            onCloseTab = session::closeTab,
-            onAnnotationsChange = session::updateAnnotations,
-            onUndo = { session.undo(activeTab.id) },
-            onRedo = { session.redo(activeTab.id) },
-            undoEnabled = canUndoActive,
-            redoEnabled = canRedoActive,
-            onNewCapture = ::startCaptureFromEditor,
-            onBeforeAnnotatedCopy = captureRunner::cancelBackgroundCopy,
-            clipboard = captureRunner.clipboard(),
-        )
-    } else {
-        StatusApp(
-            onVisibilityForCapture = onVisibilityForCapture,
-            onCaptureReady = session::openTab,
-            onExit = onExit,
-            captureRunner = captureRunner,
-        )
-    }
+    EditorScreen(
+        tab = activeTab,
+        tabs = tabs,
+        onSelectTab = session::selectTab,
+        onCloseTab = session::closeTab,
+        onAnnotationsChange = session::updateAnnotations,
+        onUndo = { session.undo(activeTab.id) },
+        onRedo = { session.redo(activeTab.id) },
+        undoEnabled = canUndoActive,
+        redoEnabled = canRedoActive,
+        onNewCapture = ::startCaptureFromEditor,
+        onBeforeAnnotatedCopy = captureRunner::cancelBackgroundCopy,
+        clipboard = captureRunner.clipboard(),
+    )
 }

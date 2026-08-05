@@ -8,7 +8,7 @@ window:
   position: TopEnd
 
 capture:
-  hideDelayMs: 400
+  hideDelayMs: 300
   # Delay auto-copy after capture so the editor can render first.
   backgroundCopyDelayMs: 500
 
