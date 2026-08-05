@@ -21,7 +21,6 @@ class GnomeScreenshotCapture(
 
     override fun captureArea(): Path {
         val output = Files.createTempFile(tempPrefix, ".png")
-        output.toFile().deleteOnExit()
         val executable = resolveCommandPath() ?: command
         try {
             val process = ProcessBuilder(executable, "-a", "-f", output.toAbsolutePath().toString())

@@ -102,9 +102,18 @@ class LinuxImageClipboard(
             try {
                 if (!process.waitFor(wlCopyTimeoutSeconds, TimeUnit.SECONDS)) {
                     process.destroyForcibly()
+                } else {
+                    val code = process.exitValue()
+                    if (code != 0) {
+                        reader.join(2_000)
+                        System.err.println(
+                            "wl-copy exited with code $code in background",
+                        )
+                    }
                 }
-            } catch (_: Exception) {
+            } catch (e: Exception) {
                 process.destroyForcibly()
+                System.err.println("wl-copy background reaper error: ${e.message}")
             } finally {
                 reader.join(2_000)
             }

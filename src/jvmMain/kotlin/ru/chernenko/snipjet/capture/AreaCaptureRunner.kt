@@ -35,9 +35,6 @@ data class CaptureHandlers(
     val onFailed: (String) -> Unit = {},
 )
 
-/**
- * Shared area-capture flow: hide window → gnome-screenshot → load PNG → show window.
- */
 class AreaCaptureRunner(
     private val capture: GnomeScreenshotCapture = GnomeScreenshotCapture(),
     private val clipboard: ImageClipboard = LinuxImageClipboard(),
@@ -52,22 +49,31 @@ class AreaCaptureRunner(
     fun clipboard(): ImageClipboard = clipboard
 
     suspend fun captureArea(
-        onVisibilityForCapture: (visible: Boolean) -> Unit,
+        onVisibilityForCapture: ((visible: Boolean) -> Unit)? = null,
+        restoreOnSuccess: Boolean = true,
     ): CaptureOutcome {
         if (!capture.isAvailable()) return CaptureOutcome.NeedInstall
         if (!clipboard.isAvailable()) return CaptureOutcome.NeedClipboard
 
-        onVisibilityForCapture(false)
-        delay(AppConfig.settings.capture.hideDelayMs)
+        if (onVisibilityForCapture != null) {
+            onVisibilityForCapture(false)
+            delay(AppConfig.settings.capture.hideDelayMs)
+        }
 
         var tempFile: java.nio.file.Path? = null
-        return try {
+        try {
             tempFile = withContext(Dispatchers.IO) { capture.captureArea() }
             val pngBytes = withContext(Dispatchers.IO) { Files.readAllBytes(tempFile) }
             val bitmap = withContext(Dispatchers.IO) { loadPngImageBitmap(pngBytes) }
-            CaptureOutcome.Success(bitmap, pngBytes)
+            // Success: restore window only when caller asks; StatusApp skips it —
+            // onEditorOpen will size/center/show the window instead.
+            if (restoreOnSuccess) {
+                onVisibilityForCapture?.invoke(true)
+            }
+            return CaptureOutcome.Success(bitmap, pngBytes)
         } catch (e: ScreenCaptureException) {
-            when {
+            onVisibilityForCapture?.invoke(true)
+            return when {
                 e.isCancellationLike() -> CaptureOutcome.Cancelled
                 else -> CaptureOutcome.Failed(
                     e.message ?: Messages.get(
@@ -77,11 +83,11 @@ class AreaCaptureRunner(
                 )
             }
         } catch (e: Exception) {
-            CaptureOutcome.Failed(
+            onVisibilityForCapture?.invoke(true)
+            return CaptureOutcome.Failed(
                 Messages.get(MessageKeys.ERROR_GENERIC, e.message ?: e.toString()),
             )
         } finally {
-            onVisibilityForCapture(true)
             tempFile?.let { Files.deleteIfExists(it) }
         }
     }
@@ -90,8 +96,9 @@ class AreaCaptureRunner(
         scope: CoroutineScope,
         onVisibilityForCapture: (visible: Boolean) -> Unit,
         handlers: CaptureHandlers,
+        restoreOnSuccess: Boolean = true,
     ) {
-        when (val outcome = captureArea(onVisibilityForCapture)) {
+        when (val outcome = captureArea(onVisibilityForCapture, restoreOnSuccess = restoreOnSuccess)) {
             is CaptureOutcome.Success -> {
                 handlers.onSuccess(outcome)
                 copyPngInBackground(scope, outcome.pngBytes)

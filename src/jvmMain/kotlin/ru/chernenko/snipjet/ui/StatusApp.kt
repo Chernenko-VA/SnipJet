@@ -77,6 +77,7 @@ fun StatusApp(
             captureRunner.captureAreaAndDispatch(
                 scope = scope,
                 onVisibilityForCapture = onVisibilityForCapture,
+                restoreOnSuccess = false,
                 handlers = CaptureHandlers(
                     onSuccess = { outcome ->
                         onCaptureReady(outcome.image)

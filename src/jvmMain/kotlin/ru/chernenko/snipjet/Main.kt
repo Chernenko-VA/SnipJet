@@ -7,19 +7,44 @@ import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.WindowPosition
 import androidx.compose.ui.window.application
 import androidx.compose.ui.window.rememberWindowState
+import kotlinx.coroutines.runBlocking
+import ru.chernenko.snipjet.capture.AreaCaptureRunner
+import ru.chernenko.snipjet.capture.CaptureOutcome
 import ru.chernenko.snipjet.config.AppConfig
+import ru.chernenko.snipjet.platform.centeredDpPosition
+import ru.chernenko.snipjet.platform.editorScreenDpSize
 import ru.chernenko.snipjet.ui.CaptureWindowController
 import ru.chernenko.snipjet.ui.SnipJetApp
+import kotlin.system.exitProcess
 
-fun main() {
+fun main(args: Array<String>) {
+    val captureFirst = args.any { it == "--capture" || it == "-c" }
     val session = SnipJetSession()
     val settings = AppConfig.settings
+
+    if (captureFirst) {
+        when (val outcome = runBlocking { AreaCaptureRunner().captureArea() }) {
+            is CaptureOutcome.Success -> session.openTab(outcome.image)
+            CaptureOutcome.Cancelled -> exitProcess(0)
+            else -> {}
+        }
+    }
+
     application {
         val statusAlignment = settings.window.position.toComposeAlignment()
-        val windowState = rememberWindowState(
-            size = DpSize(settings.window.widthDp.dp, settings.window.heightDp.dp),
-            position = WindowPosition.Aligned(statusAlignment),
-        )
+
+        val windowState = if (session.editorOpen) {
+            val editorSize = editorScreenDpSize(settings.window)
+            rememberWindowState(
+                size = editorSize,
+                position = centeredDpPosition(editorSize).composePosition,
+            )
+        } else {
+            rememberWindowState(
+                size = DpSize(settings.window.widthDp.dp, settings.window.heightDp.dp),
+                position = WindowPosition.Aligned(statusAlignment),
+            )
+        }
         val icon = remember { loadAppIcon() }
 
         Window(
