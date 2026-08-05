@@ -3,6 +3,7 @@ package ru.chernenko.snipjet.capture
 import androidx.compose.ui.graphics.ImageBitmap
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -33,6 +34,9 @@ class AreaCaptureRunner(
     private val capture: GnomeScreenshotCapture = GnomeScreenshotCapture(),
     private val clipboard: ImageClipboard = LinuxImageClipboard(),
 ) {
+    @Volatile
+    private var backgroundCopyJob: Job? = null
+
     fun isCaptureAvailable(): Boolean = capture.isAvailable()
 
     fun isClipboardAvailable(): Boolean = clipboard.isAvailable()
@@ -74,13 +78,19 @@ class AreaCaptureRunner(
     }
 
     fun copyPngInBackground(scope: CoroutineScope, pngBytes: ByteArray) {
-        scope.launch(Dispatchers.IO) {
+        cancelBackgroundCopy()
+        backgroundCopyJob = scope.launch(Dispatchers.IO) {
             try {
                 clipboard.copyPngBytes(pngBytes)
             } catch (_: Exception) {
                 // Background copy must not block the editor.
             }
         }
+    }
+
+    fun cancelBackgroundCopy() {
+        backgroundCopyJob?.cancel()
+        backgroundCopyJob = null
     }
 }
 

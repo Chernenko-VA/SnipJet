@@ -35,6 +35,7 @@ object MessageKeys {
     const val EDITOR_BOLD = "editor.bold"
     const val EDITOR_ITALIC = "editor.italic"
     const val EDITOR_UNDERLINE = "editor.underline"
+    const val DIALOG_OK = "dialog.ok"
 
     const val ERROR_CAPTURE_TIMEOUT = "error.capture.timeout"
     const val ERROR_CAPTURE_EXIT = "error.capture.exit"

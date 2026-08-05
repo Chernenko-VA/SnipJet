@@ -83,6 +83,7 @@ import java.awt.Frame
 import java.io.File
 import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
+import javax.swing.SwingUtilities
 
 private data class ToolStrokeSettings(
     val alpha: Float,
@@ -113,6 +114,7 @@ fun EditorScreen(
     undoEnabled: Boolean,
     redoEnabled: Boolean,
     onNewCapture: () -> Unit,
+    onBeforeAnnotatedCopy: () -> Unit = {},
     clipboard: ImageClipboard = remember { LinuxImageClipboard() },
 ) {
     val image = tab.image
@@ -208,6 +210,7 @@ fun EditorScreen(
     fun copyToClipboard() {
         if (copyInProgress) return
         copyInProgress = true
+        onBeforeAnnotatedCopy()
         val annotationsSnapshot = annotations
         val imageSnapshot = image
         scope.launch {
@@ -231,9 +234,7 @@ fun EditorScreen(
         val imageSnapshot = image
         scope.launch {
             try {
-                val path = withContext(Dispatchers.IO) {
-                    chooseSavePngPath()
-                } ?: return@launch
+                val path = chooseSavePngPath() ?: return@launch
                 withContext(Dispatchers.IO) {
                     val pngBytes = composeAnnotatedPng(imageSnapshot, annotationsSnapshot)
                     File(path).writeBytes(pngBytes)
@@ -310,7 +311,7 @@ fun EditorScreen(
             else -> {
                 val code = event.utf16CodePoint
                 if (isTextInputCodePoint(code)) {
-                    insertTextAtCaret(code.toChar().toString())
+                    insertTextAtCaret(String(Character.toChars(code)))
                     return true
                 }
                 return false
@@ -871,16 +872,27 @@ private fun isTextInputCodePoint(code: Int): Boolean {
 }
 
 private fun chooseSavePngPath(): String? {
-    val dialog = FileDialog(null as Frame?, Messages.get(MessageKeys.EDITOR_SAVE), FileDialog.SAVE)
-    dialog.file = "snipjet-${LocalDateTime.now().format(SaveFileTimestampFormat)}.png"
-    dialog.isVisible = true
-    val directory = dialog.directory ?: return null
-    val fileName = dialog.file ?: return null
-    val withExt = if (fileName.endsWith(".png", ignoreCase = true)) {
-        fileName
-    } else {
-        "$fileName.png"
+    fun showDialog(): String? {
+        val dialog = FileDialog(null as Frame?, Messages.get(MessageKeys.EDITOR_SAVE), FileDialog.SAVE)
+        dialog.file = "snipjet-${LocalDateTime.now().format(SaveFileTimestampFormat)}.png"
+        dialog.isVisible = true
+        val directory = dialog.directory ?: return null
+        val fileName = dialog.file ?: return null
+        val withExt = if (fileName.endsWith(".png", ignoreCase = true)) {
+            fileName
+        } else {
+            "$fileName.png"
+        }
+        return File(directory, withExt).absolutePath
     }
-    return File(directory, withExt).absolutePath
+
+    if (SwingUtilities.isEventDispatchThread()) {
+        return showDialog()
+    }
+    var path: String? = null
+    SwingUtilities.invokeAndWait {
+        path = showDialog()
+    }
+    return path
 }
 
