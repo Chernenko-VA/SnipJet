@@ -15,6 +15,7 @@ import ru.chernenko.snipjet.platform.pixelToWindowPosition
 import java.awt.Point
 import java.awt.Window
 import javax.swing.SwingUtilities
+import javax.swing.Timer
 
 class CaptureWindowController(
     private val window: Window,
@@ -23,13 +24,12 @@ class CaptureWindowController(
     private val statusAlignment: Alignment,
     private val windowSettings: WindowSettings,
 ) {
-    private var hiddenForCapture = false
     private var savedLocation: Point? = null
     private var editorSized = session.editorOpen
     private var centeringEditor = false
+    private var centerTimers: List<Timer> = emptyList()
 
     fun onVisibilityForCapture(visible: Boolean) {
-        hiddenForCapture = !visible
         if (visible) {
             showWindow()
             val restoreAt = savedLocation
@@ -77,6 +77,7 @@ class CaptureWindowController(
         } else {
             editorSized = false
             centeringEditor = false
+            cancelCenterTimers()
             windowState.placement = WindowPlacement.Floating
             windowState.size = DpSize(windowSettings.widthDp.dp, windowSettings.heightDp.dp)
             windowState.position = WindowPosition.Aligned(statusAlignment)
@@ -84,6 +85,7 @@ class CaptureWindowController(
     }
 
     private fun placeEditorCentered(onDone: () -> Unit) {
+        cancelCenterTimers()
         val dpSize = editorScreenDpSize(windowSettings)
         val center = centeredDpPosition(dpSize)
         windowState.placement = WindowPlacement.Floating
@@ -101,9 +103,8 @@ class CaptureWindowController(
 
         SwingUtilities.invokeLater {
             applyAwtCenter()
-            // Size may apply asynchronously; re-center a few times so WM/XWayland settle.
-            intArrayOf(16, 50, 100, 200, 400).forEach { delayMs ->
-                javax.swing.Timer(delayMs) {
+            centerTimers = intArrayOf(16, 50, 100, 200, 400).map { delayMs ->
+                Timer(delayMs) {
                     applyAwtCenter()
                     if (delayMs == 400) onDone()
                 }.apply {
@@ -112,6 +113,11 @@ class CaptureWindowController(
                 }
             }
         }
+    }
+
+    private fun cancelCenterTimers() {
+        centerTimers.forEach { it.stop() }
+        centerTimers = emptyList()
     }
 
     private fun showWindow() {
