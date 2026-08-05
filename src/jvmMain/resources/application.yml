@@ -9,3 +9,8 @@ window:
 
 capture:
   hideDelayMs: 300
+  # Delay auto-copy after capture so the editor can render first.
+  backgroundCopyDelayMs: 500
+
+clipboard:
+  wlCopyTimeoutSeconds: 10

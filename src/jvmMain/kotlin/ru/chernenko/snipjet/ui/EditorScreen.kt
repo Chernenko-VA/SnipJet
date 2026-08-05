@@ -55,7 +55,7 @@ private data class TextToolSettings(
 )
 
 private val DefaultPenSettings = ToolStrokeSettings(alpha = 1f, widthPx = 4f)
-private val DefaultMarkerSettings = ToolStrokeSettings(alpha = 0.45f, widthPx = 16f)
+private val DefaultMarkerSettings = ToolStrokeSettings(alpha = 0.25f, widthPx = 30f)
 private val DefaultTextSettings = TextToolSettings(alpha = 1f, sizePt = DefaultTextFontSizePt)
 private const val EraserRadiusPx = 20f
 private const val CaretBlinkMs = 530L

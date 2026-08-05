@@ -64,7 +64,7 @@ class AreaCaptureRunner(
         return try {
             tempFile = withContext(Dispatchers.IO) { capture.captureArea() }
             val pngBytes = withContext(Dispatchers.IO) { Files.readAllBytes(tempFile) }
-            val bitmap = withContext(Dispatchers.IO) { loadPngImageBitmap(tempFile) }
+            val bitmap = withContext(Dispatchers.IO) { loadPngImageBitmap(pngBytes) }
             CaptureOutcome.Success(bitmap, pngBytes)
         } catch (e: ScreenCaptureException) {
             when {
@@ -107,6 +107,7 @@ class AreaCaptureRunner(
         cancelBackgroundCopy()
         backgroundCopyJob = scope.launch(Dispatchers.IO) {
             try {
+                delay(AppConfig.settings.capture.backgroundCopyDelayMs)
                 clipboard.copyPngBytes(pngBytes)
             } catch (_: Exception) {
                 // Background copy must not block the editor.

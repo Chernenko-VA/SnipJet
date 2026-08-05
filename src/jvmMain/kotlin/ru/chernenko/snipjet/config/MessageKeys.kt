@@ -45,5 +45,6 @@ object MessageKeys {
     const val ERROR_CLIPBOARD_DECODE = "error.clipboard.decode"
     const val ERROR_CLIPBOARD_UNAVAILABLE = "error.clipboard.unavailable"
     const val ERROR_CLIPBOARD_WL_COPY_FAILED = "error.clipboard.wlCopyFailed"
+    const val ERROR_CLIPBOARD_TIMEOUT = "error.clipboard.timeout"
     const val ERROR_GENERIC = "error.generic"
 }

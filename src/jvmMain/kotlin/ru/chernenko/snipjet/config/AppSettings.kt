@@ -78,6 +78,8 @@ data class CaptureSettings(
     val timeoutSeconds: Long = 300,
     val tempPrefix: String = "snipjet-",
     val hideDelayMs: Long = 300,
+    /** Delay before auto-copy so the editor can render first. */
+    val backgroundCopyDelayMs: Long = 500,
 ) {
     val pathCandidates: List<String> get() = standardLinuxPaths(command)
 
@@ -86,6 +88,9 @@ data class CaptureSettings(
         require(timeoutSeconds in 1..3600) { "capture.timeoutSeconds must be between 1 and 3600" }
         require(tempPrefix.isNotBlank()) { "capture.tempPrefix must not be blank" }
         require(hideDelayMs in 0..5000) { "capture.hideDelayMs must be between 0 and 5000" }
+        require(backgroundCopyDelayMs in 0..10_000) {
+            "capture.backgroundCopyDelayMs must be between 0 and 10000"
+        }
     }
 }
 
@@ -93,6 +98,7 @@ data class ClipboardSettings(
     val wlCopyCommand: String = "wl-copy",
     val wlCopyTypeFlag: String = "--type",
     val wlCopyMime: String = "image/png",
+    val wlCopyTimeoutSeconds: Long = 10,
 ) {
     val pathCandidates: List<String> get() = standardLinuxPaths(wlCopyCommand)
 
@@ -100,6 +106,9 @@ data class ClipboardSettings(
         require(wlCopyCommand.isNotBlank()) { "clipboard.wlCopyCommand must not be blank" }
         require(wlCopyTypeFlag.isNotBlank()) { "clipboard.wlCopyTypeFlag must not be blank" }
         require(wlCopyMime.isNotBlank()) { "clipboard.wlCopyMime must not be blank" }
+        require(wlCopyTimeoutSeconds in 1..120) {
+            "clipboard.wlCopyTimeoutSeconds must be between 1 and 120"
+        }
     }
 }
 
@@ -186,6 +195,8 @@ internal object AppSettingsLoader {
                 timeoutSeconds = long(captureSection, "timeoutSeconds") ?: defaults.capture.timeoutSeconds,
                 tempPrefix = string(captureSection, "tempPrefix") ?: defaults.capture.tempPrefix,
                 hideDelayMs = hideDelayMs,
+                backgroundCopyDelayMs = long(captureSection, "backgroundCopyDelayMs")
+                    ?: defaults.capture.backgroundCopyDelayMs,
             ),
             clipboard = defaults.clipboard.copy(
                 wlCopyCommand = string(clipboardSection, "wlCopyCommand")
@@ -193,6 +204,8 @@ internal object AppSettingsLoader {
                 wlCopyTypeFlag = string(clipboardSection, "wlCopyTypeFlag")
                     ?: defaults.clipboard.wlCopyTypeFlag,
                 wlCopyMime = string(clipboardSection, "wlCopyMime") ?: defaults.clipboard.wlCopyMime,
+                wlCopyTimeoutSeconds = long(clipboardSection, "wlCopyTimeoutSeconds")
+                    ?: defaults.clipboard.wlCopyTimeoutSeconds,
             ),
         )
     }

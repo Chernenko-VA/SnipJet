@@ -6,7 +6,8 @@ import org.jetbrains.skia.Image
 import java.nio.file.Files
 import java.nio.file.Path
 
-fun loadPngImageBitmap(path: Path): ImageBitmap {
-    val bytes = Files.readAllBytes(path)
-    return Image.makeFromEncoded(bytes).toComposeImageBitmap()
-}
+fun loadPngImageBitmap(bytes: ByteArray): ImageBitmap =
+    Image.makeFromEncoded(bytes).toComposeImageBitmap()
+
+fun loadPngImageBitmap(path: Path): ImageBitmap =
+    loadPngImageBitmap(Files.readAllBytes(path))

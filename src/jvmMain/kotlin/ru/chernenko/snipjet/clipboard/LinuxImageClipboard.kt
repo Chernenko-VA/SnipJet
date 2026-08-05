@@ -12,12 +12,14 @@ import java.awt.datatransfer.Transferable
 import java.awt.datatransfer.UnsupportedFlavorException
 import java.awt.image.BufferedImage
 import java.io.ByteArrayInputStream
+import java.util.concurrent.TimeUnit
 import javax.imageio.ImageIO
 
 class LinuxImageClipboard(
     private val wlCopyCommand: String = AppConfig.settings.clipboard.wlCopyCommand,
     private val wlCopyTypeFlag: String = AppConfig.settings.clipboard.wlCopyTypeFlag,
     private val wlCopyMime: String = AppConfig.settings.clipboard.wlCopyMime,
+    private val wlCopyTimeoutSeconds: Long = AppConfig.settings.clipboard.wlCopyTimeoutSeconds,
     private val pathCandidates: List<String> = AppConfig.settings.clipboard.pathCandidates,
 ) : ImageClipboard {
 
@@ -70,14 +72,51 @@ class LinuxImageClipboard(
         val stdout = StringBuilder()
         val reader = drainProcessOutput(process.inputStream, stdout)
 
-        process.outputStream.use { it.write(pngBytes) }
-        val code = process.waitFor()
-        reader.join(5_000)
-        if (code != 0) {
-            throw ClipboardException(
-                Messages.get(MessageKeys.ERROR_CLIPBOARD_WL_COPY_FAILED, code, stdout.toString().trim())
-            )
+        try {
+            process.outputStream.use { it.write(pngBytes) }
+        } catch (e: Exception) {
+            process.destroyForcibly()
+            reader.join(2_000)
+            throw ClipboardException(Messages.get(MessageKeys.ERROR_CLIPBOARD_UNAVAILABLE), e)
         }
+
+        // Clipboard is ready once stdin is closed. wl-copy often stays alive on Wayland
+        // to serve paste clients — do not block the UI waiting for process exit.
+        val exitedQuickly = process.waitFor(EarlyExitPollMs, TimeUnit.MILLISECONDS)
+        if (exitedQuickly) {
+            reader.join(2_000)
+            val code = process.exitValue()
+            if (code != 0) {
+                throw ClipboardException(
+                    Messages.get(MessageKeys.ERROR_CLIPBOARD_WL_COPY_FAILED, code, stdout.toString().trim()),
+                )
+            }
+            return
+        }
+
+        reapWlCopyInBackground(process, reader)
+    }
+
+    private fun reapWlCopyInBackground(process: Process, reader: Thread) {
+        Thread {
+            try {
+                if (!process.waitFor(wlCopyTimeoutSeconds, TimeUnit.SECONDS)) {
+                    process.destroyForcibly()
+                }
+            } catch (_: Exception) {
+                process.destroyForcibly()
+            } finally {
+                reader.join(2_000)
+            }
+        }.apply {
+            isDaemon = true
+            name = "snipjet-wl-copy-reaper"
+            start()
+        }
+    }
+
+    companion object {
+        private const val EarlyExitPollMs = 100L
     }
 }
 
