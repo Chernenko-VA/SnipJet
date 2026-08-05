@@ -33,8 +33,9 @@ class CaptureWindowController(
     private var centeringEditor = false
 
     fun onVisibilityForCapture(visible: Boolean) {
-        hiddenForCapture = !visible
         if (visible) {
+            if (!hiddenForCapture) return
+            hiddenForCapture = false
             windowState.isMinimized = false
             try {
                 window.opacity = 1f
@@ -63,14 +64,25 @@ class CaptureWindowController(
                 }
             }
         } else {
-            savedLocation = window.location
-            windowState.isMinimized = true
-            try {
-                window.opacity = 0f
-            } catch (_: Exception) {
-                // Wayland hide workaround when translucency is unsupported.
-                window.location = Point(-32_000, -32_000)
-            }
+            if (hiddenForCapture) return
+            hiddenForCapture = true
+            hideForCapture()
+        }
+    }
+
+    /** Hide before first paint/capture so auto-hiding panels can be screenshotted. */
+    fun hideForStartup() {
+        onVisibilityForCapture(false)
+    }
+
+    private fun hideForCapture() {
+        savedLocation = window.location
+        windowState.isMinimized = true
+        try {
+            window.opacity = 0f
+        } catch (_: Exception) {
+            // Wayland hide workaround when translucency is unsupported.
+            window.location = Point(-32_000, -32_000)
         }
     }
 

@@ -82,33 +82,47 @@ fun StatusApp(
                         onCaptureReady(outcome.image)
                         phase = StatusPhase.Ready
                     },
-                    onCancelled = { phase = StatusPhase.Outcome(CaptureOutcome.Cancelled) },
-                    onNeedInstall = { phase = StatusPhase.Outcome(CaptureOutcome.NeedInstall) },
-                    onNeedClipboard = { phase = StatusPhase.Outcome(CaptureOutcome.NeedClipboard) },
-                    onFailed = { message -> phase = StatusPhase.Outcome(CaptureOutcome.Failed(message)) },
+                    onCancelled = { onExit() },
+                    onNeedInstall = {
+                        onVisibilityForCapture(true)
+                        phase = StatusPhase.Outcome(CaptureOutcome.NeedInstall)
+                    },
+                    onNeedClipboard = {
+                        onVisibilityForCapture(true)
+                        phase = StatusPhase.Outcome(CaptureOutcome.NeedClipboard)
+                    },
+                    onFailed = { message ->
+                        onVisibilityForCapture(true)
+                        phase = StatusPhase.Outcome(CaptureOutcome.Failed(message))
+                    },
                 ),
             )
         }
     }
 
-    fun checkDependency() {
+    fun checkDependency(autoCapture: Boolean = false) {
         scope.launch {
             val captureOk = withContext(Dispatchers.IO) { captureRunner.isCaptureAvailable() }
             if (!captureOk) {
+                onVisibilityForCapture(true)
                 phase = StatusPhase.Outcome(CaptureOutcome.NeedInstall)
                 return@launch
             }
             val clipboardOk = withContext(Dispatchers.IO) { captureRunner.isClipboardAvailable() }
-            phase = if (clipboardOk) {
-                StatusPhase.Ready
-            } else {
-                StatusPhase.Outcome(CaptureOutcome.NeedClipboard)
+            if (!clipboardOk) {
+                onVisibilityForCapture(true)
+                phase = StatusPhase.Outcome(CaptureOutcome.NeedClipboard)
+                return@launch
+            }
+            phase = StatusPhase.Ready
+            if (autoCapture) {
+                runCapture()
             }
         }
     }
 
     LaunchedEffect(Unit) {
-        checkDependency()
+        checkDependency(autoCapture = true)
     }
 
     val busy = phase is StatusPhase.Capturing || captureJob?.isActive == true
@@ -149,7 +163,7 @@ fun StatusApp(
             }
             if (actions.showRetry) {
                 Button(
-                    onClick = ::checkDependency,
+                    onClick = { checkDependency(autoCapture = false) },
                     enabled = !busy,
                     modifier = Modifier.weight(1f, fill = false),
                 ) {

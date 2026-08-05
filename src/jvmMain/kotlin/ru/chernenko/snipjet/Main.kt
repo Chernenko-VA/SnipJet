@@ -1,5 +1,6 @@
 package ru.chernenko.snipjet
 
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.dp
@@ -38,6 +39,9 @@ fun main() {
                     statusAlignment = statusAlignment,
                     windowSettings = settings.window,
                 )
+            }
+            LaunchedEffect(windowController) {
+                windowController.hideForStartup()
             }
             SnipJetApp(
                 session = session,

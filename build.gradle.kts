@@ -64,12 +64,14 @@ compose.desktop {
 }
 
 /**
- * Compose Desktop 1.11.1 has no linux.packageDeps DSL.
- * After jpackage builds the .deb, merge runtime Depends into DEBIAN/control.
+ * Compose Desktop 1.11.1 has no linux.packageDeps / StartupWMClass DSL.
+ * After jpackage builds the .deb: merge Depends and fix .desktop for GNOME dock icons.
  */
+val snipJetStartupWmClass = "ru-chernenko-snipjet-MainKt"
+
 tasks.register("injectDebDepends") {
     group = "compose desktop"
-    description = "Add gnome-screenshot and wl-clipboard to the packaged .deb Depends"
+    description = "Add runtime Depends and StartupWMClass to the packaged .deb"
     doLast {
         val debDir = layout.buildDirectory.dir("compose/binaries/main/deb").get().asFile
         val debFile = debDir.listFiles()?.singleOrNull { it.extension == "deb" }
@@ -87,9 +89,10 @@ tasks.register("injectDebDepends") {
             require(result == 0) { "Command failed ($result): ${args.joinToString(" ")}" }
         }
 
-        runDpkg("dpkg-deb", "-R", debFile.absolutePath, workDir.resolve("root").absolutePath)
+        val rootDir = workDir.resolve("root")
+        runDpkg("dpkg-deb", "-R", debFile.absolutePath, rootDir.absolutePath)
 
-        val controlFile = workDir.resolve("root/DEBIAN/control")
+        val controlFile = rootDir.resolve("DEBIAN/control")
         require(controlFile.isFile) { "Missing DEBIAN/control in ${debFile.name}" }
 
         val controlLines = controlFile.readLines().toMutableList()
@@ -106,9 +109,25 @@ tasks.register("injectDebDepends") {
         }
         controlFile.writeText(controlLines.joinToString("\n") + "\n")
 
+        fun patchDesktopFile(desktop: java.io.File) {
+            val lines = desktop.readLines().toMutableList()
+            fun setOrAdd(key: String, value: String) {
+                val index = lines.indexOfFirst { it.startsWith("$key=") }
+                val entry = "$key=$value"
+                if (index >= 0) lines[index] = entry else lines.add(entry)
+            }
+            setOrAdd("StartupWMClass", snipJetStartupWmClass)
+            setOrAdd("StartupNotify", "true")
+            desktop.writeText(lines.joinToString("\n") + "\n")
+        }
+
+        rootDir.walkTopDown()
+            .filter { it.isFile && it.extension == "desktop" }
+            .forEach { patchDesktopFile(it) }
+
         val rebuilt = debDir.resolve(debFile.name)
-        runDpkg("dpkg-deb", "-b", workDir.resolve("root").absolutePath, rebuilt.absolutePath)
-        logger.lifecycle("Updated Depends in ${rebuilt.absolutePath}")
+        runDpkg("dpkg-deb", "-b", rootDir.absolutePath, rebuilt.absolutePath)
+        logger.lifecycle("Updated Depends and StartupWMClass in ${rebuilt.absolutePath}")
     }
 }
 
