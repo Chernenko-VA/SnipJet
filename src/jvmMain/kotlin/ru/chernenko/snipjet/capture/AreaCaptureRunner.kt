@@ -4,7 +4,6 @@ import androidx.compose.ui.graphics.ImageBitmap
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -36,18 +35,12 @@ data class CaptureHandlers(
     val onFailed: (String) -> Unit = {},
 )
 
-/**
- * Area capture: optional hide window → gnome-screenshot → load PNG.
- * Null [onVisibilityForCapture] = headless (same path as --capture).
- */
 class AreaCaptureRunner(
     private val capture: GnomeScreenshotCapture = GnomeScreenshotCapture(),
     private val clipboard: ImageClipboard = LinuxImageClipboard(),
 ) {
     @Volatile
     private var backgroundCopyJob: Job? = null
-
-    private val copyScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     fun isCaptureAvailable(): Boolean = capture.isAvailable()
 
@@ -57,6 +50,7 @@ class AreaCaptureRunner(
 
     suspend fun captureArea(
         onVisibilityForCapture: ((visible: Boolean) -> Unit)? = null,
+        restoreOnSuccess: Boolean = true,
     ): CaptureOutcome {
         if (!capture.isAvailable()) return CaptureOutcome.NeedInstall
         if (!clipboard.isAvailable()) return CaptureOutcome.NeedClipboard
@@ -67,13 +61,19 @@ class AreaCaptureRunner(
         }
 
         var tempFile: java.nio.file.Path? = null
-        return try {
+        try {
             tempFile = withContext(Dispatchers.IO) { capture.captureArea() }
             val pngBytes = withContext(Dispatchers.IO) { Files.readAllBytes(tempFile) }
             val bitmap = withContext(Dispatchers.IO) { loadPngImageBitmap(pngBytes) }
-            CaptureOutcome.Success(bitmap, pngBytes)
+            // Success: restore window only when caller asks; StatusApp skips it —
+            // onEditorOpen will size/center/show the window instead.
+            if (restoreOnSuccess) {
+                onVisibilityForCapture?.invoke(true)
+            }
+            return CaptureOutcome.Success(bitmap, pngBytes)
         } catch (e: ScreenCaptureException) {
-            when {
+            onVisibilityForCapture?.invoke(true)
+            return when {
                 e.isCancellationLike() -> CaptureOutcome.Cancelled
                 else -> CaptureOutcome.Failed(
                     e.message ?: Messages.get(
@@ -83,23 +83,25 @@ class AreaCaptureRunner(
                 )
             }
         } catch (e: Exception) {
-            CaptureOutcome.Failed(
+            onVisibilityForCapture?.invoke(true)
+            return CaptureOutcome.Failed(
                 Messages.get(MessageKeys.ERROR_GENERIC, e.message ?: e.toString()),
             )
         } finally {
-            onVisibilityForCapture?.invoke(true)
             tempFile?.let { Files.deleteIfExists(it) }
         }
     }
 
     suspend fun captureAreaAndDispatch(
-        onVisibilityForCapture: ((visible: Boolean) -> Unit)?,
+        scope: CoroutineScope,
+        onVisibilityForCapture: (visible: Boolean) -> Unit,
         handlers: CaptureHandlers,
+        restoreOnSuccess: Boolean = true,
     ) {
-        when (val outcome = captureArea(onVisibilityForCapture)) {
+        when (val outcome = captureArea(onVisibilityForCapture, restoreOnSuccess = restoreOnSuccess)) {
             is CaptureOutcome.Success -> {
                 handlers.onSuccess(outcome)
-                copyPngInBackground(outcome.pngBytes)
+                copyPngInBackground(scope, outcome.pngBytes)
             }
             CaptureOutcome.Cancelled -> handlers.onCancelled()
             CaptureOutcome.NeedInstall -> handlers.onNeedInstall()
@@ -108,9 +110,9 @@ class AreaCaptureRunner(
         }
     }
 
-    fun copyPngInBackground(pngBytes: ByteArray) {
+    fun copyPngInBackground(scope: CoroutineScope, pngBytes: ByteArray) {
         cancelBackgroundCopy()
-        backgroundCopyJob = copyScope.launch {
+        backgroundCopyJob = scope.launch(Dispatchers.IO) {
             try {
                 delay(AppConfig.settings.capture.backgroundCopyDelayMs)
                 clipboard.copyPngBytes(pngBytes)
