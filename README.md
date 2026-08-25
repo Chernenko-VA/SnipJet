@@ -1,27 +1,10 @@
 # SnipJet
 
-Скриншоты области экрана на Linux (Ubuntu / Wayland) с простым редактором аннотаций. Без `java.awt.Robot` — захват через `gnome-screenshot`, буфер через `wl-copy`.
+Скриншоты области экрана на Linux (Ubuntu / Wayland) с простым редактором аннотаций. Захват через `gnome-screenshot`, буфер через `wl-copy`.
 
 ## Скачать
 
-Пакет `.deb` для amd64:
-
-**[Releases на GitHub](https://github.com/VictoryCh/SnipJet/releases)** — последний релиз `v1.0.0` или [Latest](https://github.com/VictoryCh/SnipJet/releases/latest).
-
-Файл: `snipjet_1.0.0-1_amd64.deb`
-
-## Установка
-
-Зависимости (подтянутся из Depends пакета):
-
-- `gnome-screenshot`
-- `wl-clipboard`
-
-```bash
-sudo apt install ./snipjet_1.0.0-1_amd64.deb
-```
-
-Если apt ругается на `_apt` и путь в домашней папке — скопируйте `.deb` в `/tmp` и установите оттуда.
+**[snipjet_1.0.0-1_amd64.deb](https://github.com/VictoryCh/SnipJet/releases/download/v1.0.0/snipjet_1.0.0-1_amd64.deb)** — Ubuntu / Debian, amd64
 
 ## Использование
 
@@ -33,26 +16,6 @@ sudo apt install ./snipjet_1.0.0-1_amd64.deb
 
 Откроется статусное окно → **Сделать снимок** → выбор области → редактор (перо, маркер, ластик, текст, Copy / Save).
 
-### Горячая клавиша Print Screen (GNOME / Ubuntu)
-
-Сейчас Print Screen удобно привязать к `/opt/snipjet/bin/SnipJet`, но при запуске ещё нужно нажать «Сделать снимок». Режим «сразу выбор области без окна» — в планах (захват до открытия UI), чтобы можно было снять автоскрывающуюся панель Ubuntu.
-
-Пока:
-
-1. **Параметры → Клавиатура → Сочетания клавиш → Просмотр снимков экрана** — снимите привязку с Print.
-2. **Пользовательские** → команда `/opt/snipjet/bin/SnipJet` → клавиша `Print`.
-
-## Сборка из исходников
-
-Требования: JDK 17+ с `jpackage` (например Liberica Full), `dpkg-dev`.
-
-```bash
-./gradlew packageDeb
-```
-
-Результат:
-
-`build/compose/binaries/main/deb/snipjet_1.0.0-1_amd64.deb`
 
 ## Лицензия
 
