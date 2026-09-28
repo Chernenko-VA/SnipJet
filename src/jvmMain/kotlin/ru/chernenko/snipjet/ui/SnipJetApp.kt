@@ -11,6 +11,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.launch
 import ru.chernenko.snipjet.SnipJetSession
 import ru.chernenko.snipjet.capture.AreaCaptureRunner
@@ -24,10 +25,12 @@ fun SnipJetApp(
     onVisibilityForCapture: (visible: Boolean) -> Unit,
     onEditorOpen: (open: Boolean) -> Unit,
     onExit: () -> Unit,
+    ipcCaptureRequests: Flow<Unit>? = null,
+    onBringToFront: () -> Unit = {},
 ) {
     val scope = rememberCoroutineScope()
     val captureRunner = remember { AreaCaptureRunner() }
-    var captureJob by remember { mutableStateOf<Job?>(null) }
+    val captureJobHolder = remember { object { var job: Job? = null } }
     var captureErrorTitle by remember { mutableStateOf<String?>(null) }
     var captureErrorMessage by remember { mutableStateOf<String?>(null) }
 
@@ -46,8 +49,8 @@ fun SnipJetApp(
     }
 
     fun startCaptureFromEditor() {
-        if (captureJob?.isActive == true) return
-        captureJob = scope.launch {
+        if (captureJobHolder.job?.isActive == true) return
+        captureJobHolder.job = scope.launch {
             captureRunner.captureAreaAndDispatch(
                 scope = scope,
                 onVisibilityForCapture = onVisibilityForCapture,
@@ -67,6 +70,15 @@ fun SnipJetApp(
                     },
                 ),
             )
+        }
+    }
+
+    if (ipcCaptureRequests != null) {
+        LaunchedEffect(ipcCaptureRequests) {
+            ipcCaptureRequests.collect {
+                // Focus is restored after capture via CaptureWindowController.onVisibilityForCapture(true).
+                startCaptureFromEditor()
+            }
         }
     }
 

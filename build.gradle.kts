@@ -7,7 +7,7 @@ plugins {
 }
 
 group = "ru.chernenko"
-version = "1.0.0"
+version = "1.1.0"
 
 repositories {
     mavenCentral()
@@ -46,7 +46,7 @@ compose.desktop {
         nativeDistributions {
             targetFormats(TargetFormat.Deb)
             packageName = "SnipJet"
-            packageVersion = "1.0.0"
+            packageVersion = "1.1.0"
             description = "Screenshot capture and annotation for Linux Wayland"
             copyright = "© 2026"
             vendor = "SnipJet"

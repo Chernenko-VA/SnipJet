@@ -32,9 +32,11 @@ object MessageKeys {
     const val EDITOR_STROKE_SIZE = "editor.strokeSize"
     const val EDITOR_FONT = "editor.font"
     const val EDITOR_FONT_SIZE = "editor.fontSize"
+    const val EDITOR_FONT_NO_MATCH = "editor.font.noMatch"
     const val EDITOR_BOLD = "editor.bold"
     const val EDITOR_ITALIC = "editor.italic"
     const val EDITOR_UNDERLINE = "editor.underline"
+    const val EDITOR_SHAPE_FILL = "editor.shape.fill"
     const val DIALOG_OK = "dialog.ok"
 
     const val ERROR_CAPTURE_TIMEOUT = "error.capture.timeout"
