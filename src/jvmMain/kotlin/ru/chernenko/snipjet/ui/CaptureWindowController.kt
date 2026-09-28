@@ -28,6 +28,11 @@ class CaptureWindowController(
     private var editorSized = session.editorOpen
     private var centeringEditor = false
     private var centerTimers: List<Timer> = emptyList()
+    private var raiseTimer: Timer? = null
+    private var clearRaiseTimer: Timer? = null
+
+    /** Wired from Compose so alwaysOnTop is owned by Window { }, not raw AWT. */
+    var temporaryRaiseHandler: ((Boolean) -> Unit)? = null
 
     fun onVisibilityForCapture(visible: Boolean) {
         if (visible) {
@@ -51,7 +56,11 @@ class CaptureWindowController(
                     }
                 }
             }
+            // After unminimize settles — raise without touching hide/minimize logic.
+            scheduleFocusRaise()
         } else {
+            cancelFocusRaise()
+            temporaryRaiseHandler?.invoke(false)
             savedLocation = window.location
             windowState.isMinimized = true
             try {
@@ -118,6 +127,51 @@ class CaptureWindowController(
     private fun cancelCenterTimers() {
         centerTimers.forEach { it.stop() }
         centerTimers = emptyList()
+    }
+
+    fun bringToFront() {
+        showWindow()
+        scheduleFocusRaise()
+    }
+
+    private fun cancelFocusRaise() {
+        raiseTimer?.stop()
+        clearRaiseTimer?.stop()
+        raiseTimer = null
+        clearRaiseTimer = null
+    }
+
+    private fun scheduleFocusRaise() {
+        cancelFocusRaise()
+        raiseTimer = Timer(350) {
+            if (windowState.isMinimized) return@Timer
+            temporaryRaiseHandler?.invoke(true)
+            SwingUtilities.invokeLater {
+                try {
+                    window.toFront()
+                    window.requestFocus()
+                } catch (_: Exception) {
+                    // Wayland may ignore focus requests.
+                }
+            }
+            clearRaiseTimer = Timer(250) {
+                temporaryRaiseHandler?.invoke(false)
+                SwingUtilities.invokeLater {
+                    try {
+                        window.toFront()
+                        window.requestFocus()
+                    } catch (_: Exception) {
+                        // ignore
+                    }
+                }
+            }.apply {
+                isRepeats = false
+                start()
+            }
+        }.apply {
+            isRepeats = false
+            start()
+        }
     }
 
     private fun showWindow() {
