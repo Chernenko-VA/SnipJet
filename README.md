@@ -8,6 +8,8 @@
 
 ## Скачать
 
+**[snipjet_1.1.0-1_amd64.deb](https://github.com/VictoryCh/SnipJet/releases/download/v1.1.0/snipjet_1.1.0-1_amd64.deb)** — Ubuntu / Debian, amd64
+
 **[snipjet_1.0.0-1_amd64.deb](https://github.com/VictoryCh/SnipJet/releases/download/v1.0.0/snipjet_1.0.0-1_amd64.deb)** — Ubuntu / Debian, amd64
 
 ## Использование
